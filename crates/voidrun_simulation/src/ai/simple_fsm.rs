@@ -94,15 +94,15 @@ pub fn ai_fsm_transitions(
 
     let ai_count = ai_query.iter().count();
     if ai_count > 0 {
-        eprintln!("DEBUG: ai_fsm_transitions running, {} AI entities found", ai_count);
+        crate::log(&format!("DEBUG: ai_fsm_transitions running, {} AI entities found", ai_count));
     }
 
     for (entity, actor, transform, mut state, config, health, stamina, attacker) in ai_query.iter_mut() {
         let new_state = match state.as_ref() {
             AIState::Idle => {
                 // Ищем ближайшего живого врага (другой фракции)
-                eprintln!("DEBUG: Entity {:?} (faction {}) searching for enemy at pos {:?}",
-                    entity, actor.faction_id, transform.translation);
+                crate::log(&format!("DEBUG: Entity {:?} (faction {}) searching for enemy at pos {:?}",
+                    entity, actor.faction_id, transform.translation));
 
                 if let Some(target) = find_nearest_enemy(
                     entity,
@@ -111,10 +111,10 @@ pub fn ai_fsm_transitions(
                     &potential_targets,
                     config.detection_range,
                 ) {
-                    eprintln!("DEBUG: Entity {:?} found enemy {:?}, switching to Aggro", entity, target);
+                    crate::log(&format!("DEBUG: Entity {:?} found enemy {:?}, switching to Aggro", entity, target));
                     AIState::Aggro { target }
                 } else {
-                    eprintln!("DEBUG: Entity {:?} found NO enemies", entity);
+                    crate::log(&format!("DEBUG: Entity {:?} found NO enemies", entity));
                     AIState::Idle
                 }
             }
@@ -211,7 +211,7 @@ pub fn ai_movement_from_state(
     mut ai_query: Query<(Entity, &Transform, &AIState, &mut MovementInput)>,
     targets: Query<(Entity, &Transform)>,
 ) {
-    const MIN_DISTANCE: f32 = 0.5; // Минимальная дистанция между NPC
+    const MIN_DISTANCE: f32 = 2.0; // Attack range (weapon 0.8m + hitbox radius)
 
     for (_entity, transform, state, mut movement) in ai_query.iter_mut() {
         match state {
@@ -346,7 +346,7 @@ pub fn simple_collision_resolution(
     const COLLISION_RADIUS: f32 = 0.8; // Минимальная дистанция
     const PUSH_STRENGTH: f32 = 0.1;     // Сила отталкивания
 
-    let mut entities_positions: Vec<(Entity, Vec3)> = query.iter()
+    let entities_positions: Vec<(Entity, Vec3)> = query.iter()
         .map(|(e, t, _)| (e, t.translation))
         .collect();
 

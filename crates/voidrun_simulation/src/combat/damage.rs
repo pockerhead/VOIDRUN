@@ -53,7 +53,7 @@ pub fn apply_damage(
         let (mut target_health, target_stamina) = match targets.get_mut(overlap.target) {
             Ok(t) => t,
             Err(_) => {
-                eprintln!("WARN: HitboxOverlap: target {:?} has no Health component", overlap.target);
+                crate::log(&format!("WARN: HitboxOverlap: target {:?} has no Health component", overlap.target));
                 continue;
             }
         };
@@ -76,7 +76,7 @@ pub fn apply_damage(
         //     overlap.attacker, overlap.target, final_damage, target_health.current);
 
         // Событие: урон нанесен
-        damage_dealt_events.send(DamageDealt {
+        damage_dealt_events.write(DamageDealt {
             attacker: overlap.attacker,
             target: overlap.target,
             damage: final_damage,
@@ -85,12 +85,12 @@ pub fn apply_damage(
 
         // Событие: entity умер
         if was_alive && !is_alive {
-            entity_died_events.send(EntityDied {
+            entity_died_events.write(EntityDied {
                 entity: overlap.target,
                 killer: Some(overlap.attacker),
             });
 
-            eprintln!("INFO: Entity {:?} killed by {:?}", overlap.target, overlap.attacker);
+            crate::log(&format!("INFO: Entity {:?} killed by {:?}", overlap.target, overlap.attacker));
         }
     }
 }

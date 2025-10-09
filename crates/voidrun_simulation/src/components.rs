@@ -9,7 +9,7 @@ use bevy::prelude::*;
 /// Актор (NPC, игрок, враг) — базовый компонент для живых существ
 ///
 /// Автоматически добавляет Health и Stamina через Required Components.
-#[derive(Component, Debug, Clone, Reflect)]
+#[derive(Component, Debug, Clone, Default, Reflect)]
 #[reflect(Component)]
 #[require(Health, Stamina)]
 pub struct Actor {

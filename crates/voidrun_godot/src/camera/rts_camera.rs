@@ -54,7 +54,7 @@ impl INode3D for RTSCamera3D {
             mouse_sensitivity: 0.2,
             zoom_target: 10.0,  // Default zoom
             zoom_speed: 3.0,
-            min_zoom: 1.0,
+            min_zoom: 0.3,
             max_zoom: 120.0,
             is_rotating: false,
         }

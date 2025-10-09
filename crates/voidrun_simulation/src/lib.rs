@@ -4,6 +4,7 @@
 //! Архитектура: docs/architecture/bevy-ecs-design.md
 
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
 
@@ -22,6 +23,7 @@ pub use combat::{
     AttackHitbox, Attacker, AttackStarted, HitboxOverlap,
     DamageDealt, EntityDied, calculate_damage,
     Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST,
+    Weapon, WeaponState, spawn_weapon, collision,
 };
 pub use ai::{AIPlugin, AIState, AIConfig};
 pub use rollback::Rollback;
@@ -36,6 +38,8 @@ impl Plugin for SimulationPlugin {
             .insert_resource(Time::<Fixed>::from_hz(64.0))
             // Детерминистичный RNG (seed по умолчанию)
             .insert_resource(DeterministicRng::new(42))
+            // Rapier Physics (работает в FixedUpdate по умолчанию в 0.31)
+            .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
             // Подсистемы
             .add_plugins((
                 KinematicControllerPlugin,
@@ -64,7 +68,7 @@ impl DeterministicRng {
 /// Создаёт minimal Bevy App для headless симуляции
 pub fn create_headless_app(seed: u64) -> App {
     let mut app = App::new();
-
+    init_logger();
     app.add_plugins(MinimalPlugins)
         .insert_resource(DeterministicRng::new(seed))
         .insert_resource(Time::<Fixed>::from_hz(64.0)); // 64Hz FixedUpdate
@@ -94,4 +98,36 @@ where
     }
 
     snapshot
+}
+
+pub static mut LOGGER: Option<Box<dyn LogPrinter>> = None;
+
+pub fn set_logger(logger: Box<dyn LogPrinter>) {
+    unsafe {
+        LOGGER = Some(logger);
+    }
+}
+
+pub trait LogPrinter {
+    fn log(&self, message: &str);
+}
+
+pub fn log(message: &str) {
+    unsafe {
+        if let Some(logger) = LOGGER.as_ref() {
+            logger.log(message);
+        }
+    }
+}
+
+struct ConsoleLogger;
+
+impl LogPrinter for ConsoleLogger {
+    fn log(&self, message: &str) {
+        println!("{}", message);
+    }
+}
+
+pub fn init_logger() {
+    set_logger(Box::new(ConsoleLogger));
 }

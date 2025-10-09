@@ -141,17 +141,19 @@ pub struct KinematicControllerPlugin;
 
 impl Plugin for KinematicControllerPlugin {
     fn build(&self, app: &mut App) {
-        // Explicit ordering через .before()/.after() для детерминизма
+        use bevy_rapier3d::plugin::PhysicsSet;
+
+        // Наши системы запускаются ДО rapier physics step
         app.add_systems(
             FixedUpdate,
             (
                 ground_detection,
                 apply_movement_input,
                 apply_gravity,
-                integrate_velocity_to_transform, // Headless integration (без Rapier)
-                // sync_velocity_to_rapier,  // TODO: включить когда добавим RapierPhysicsPlugin
+                integrate_velocity_to_transform, // Прямая интеграция (rapier только для collisions)
             )
-                .chain(), // Последовательное выполнение
+                .chain() // Последовательное выполнение
+                .before(PhysicsSet::SyncBackend), // До rapier physics step
         );
     }
 }
@@ -167,6 +169,8 @@ pub fn spawn_kinematic_character(
     commands: &mut Commands,
     position: Vec3,
 ) -> Entity {
+    use crate::combat::collision;
+
     commands
         .spawn((
             // Bevy transform
@@ -182,8 +186,8 @@ pub fn spawn_kinematic_character(
             Collider::capsule_y(0.5, 0.4), // Высота 1.0m (0.5 + 0.5), радиус 0.4m
             Velocity::default(),
 
-            // Collision groups (все видят все пока)
-            CollisionGroups::default(),
+            // Collision groups (actors коллайдят друг с другом)
+            collision::actor_groups(),
         ))
         .id()
 }

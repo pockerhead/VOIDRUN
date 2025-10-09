@@ -31,85 +31,147 @@
 
 ---
 
-## 🚧 Фаза 1: Physics + Combat Core (В РАБОТЕ)
+## ✅ Фаза 1: Physics + Combat Core (ЗАВЕРШЕНО)
 
 **Срок:** 2-3 недели
-**Статус:** 🔜 Ready to start
+**Статус:** ✅ Completed (2025-01-09)
 
 ### Milestone цель:
-**2 NPC дерутся headless 1000 тиков без крашей, детерминистично**
+**2 NPC дерутся headless 1000 тиков без крашей, детерminистично** ✅
 
-### Неделя 1-2: Physics Foundation
-**Задачи:**
-- [ ] Добавить bevy_rapier3d 0.31 (раскомментировать в Cargo.toml)
-- [ ] Базовые компоненты: Position, Velocity, Health, Stamina
-- [ ] Kinematic контроллер (WASD movement, gravity)
-- [ ] Capsule коллизия для NPC
-- [ ] Property-тесты: no NaN, velocity bounds, stamina [0,100]
+### Достижения:
 
-**Пятница 1:** Debug render в Bevy
-- Кубик двигается WASD
-- Capsule коллизия видна (gizmos)
-- Stamina bar над головой (text label)
+**Physics Foundation:**
+- ✅ bevy_rapier3d 0.31 интегрирован (default-features = false, headless-friendly)
+- ✅ Компоненты: Actor, Health, Stamina, PhysicsBody, KinematicController
+- ✅ Movement: velocity integration (прямая, rapier только для collisions)
+- ✅ Capsule коллайдеры для actors (radius 0.4m, height 1.8m)
+- ✅ Collision groups: actors не коллайдят между собой, weapons детектят hits
 
-### Неделя 3: Combat System
-**Задачи:**
-- [ ] Hitbox система: AttackHitbox компонент (sphere/capsule)
-- [ ] Attack system: swing animation timing → spawn hitbox → check overlaps
-- [ ] Damage calculation: base damage × stamina multiplier
-- [ ] Stamina system: attack costs 30%, block 20%, regen 10%/sec
-- [ ] Parry window: 200ms перед ударом врага
-- [ ] Simple AI: FSM (Idle → Aggro → Approach → Attack → Retreat)
+**Combat System:**
+- ✅ Weapon hitbox: меч-капсула 1.5m длиной, child entity, rapier Sensor
+- ✅ Swing animation: diagonal slash (-30° → -120° pitch, 0.2s duration)
+- ✅ Damage system: base damage × stamina multiplier
+- ✅ Stamina: attack cost 30, regen 10/sec, exhaustion при 0
+- ✅ Collision detection: weapon swing → rapier CollisionEvent → DamageDealt
 
-**Пятница 3:** Combat debug визуал
-- 2 NPC дерутся
-- Hitbox'ы атак видны (красные сферы)
-- Stamina bars обновляются
-- Проверка timing: чувствуется ли parry window
+**AI System:**
+- ✅ Simple FSM: Idle → Aggro → Approach → Attack → Retreat
+- ✅ Target detection: faction-based, 10m radius
+- ✅ Movement: AI → MovementInput → velocity → transform
+- ✅ Attack execution: stamina check, cooldown, AttackStarted events
 
-### Checkpoint Фазы 1:
-- ✅ Headless тест: `cargo test combat_stress_test` (2 NPC, 1000 тиков)
-- ✅ Property-тест: health/stamina инварианты
-- ✅ Детерминизм: 3 прогона с seed=42 → идентичные snapshots
-- ✅ Debug визуал показал: combat timing ощущается нормально
+**Godot Visualization:**
+- ✅ 100% Rust visuals (no GDScript)
+- ✅ Health bar (над головой)
+- ✅ Stamina bar (зелёная, под health)
+- ✅ AI state label (желтая, над health)
+- ✅ Weapon mesh: длинная капсула, диагональная поза, swing animation sync
+- ✅ Hit particles: красные сферы при damage
+- ✅ RTS camera: WASD pan, RMB orbit, scroll zoom
+
+### Тесты пройдены:
+- ✅ `cargo test combat_integration` — 3/3 passed (1000 ticks, determinism, invariants)
+- ✅ `cargo test determinism` — 2/2 passed (same seed, multiple runs)
+- ✅ 28 unit tests — all passed
+- ✅ Godot runtime: 2 NPC дерутся, видны все визуалы
+
+### Технические решения:
+- **Rapier роль:** только collision detection (weapon hits), движение через direct integration
+- **Collision groups:** actors проходят друг через друга (Group::NONE), weapons детектят actors
+- **Determinism:** 64Hz fixed timestep, ChaCha8Rng, ordered systems
+- **Architecture:** Rust simulation полностью independent, Godot = presentation layer
 
 ### Deliverables:
-- `voidrun_simulation/src/physics/` — модуль с контроллером
-- `voidrun_simulation/src/combat/` — hitbox, damage, stamina системы
-- `voidrun_simulation/src/ai/simple_fsm.rs` — базовый AI
-- `tests/combat_determinism.rs` — стресс-тесты
+- ✅ `voidrun_simulation/src/physics/movement.rs` — kinematic controller
+- ✅ `voidrun_simulation/src/combat/weapon.rs` — weapon system (340+ lines)
+- ✅ `voidrun_simulation/src/combat/damage.rs` — damage calculation
+- ✅ `voidrun_simulation/src/combat/stamina.rs` — stamina management
+- ✅ `voidrun_simulation/src/ai/simple_fsm.rs` — AI FSM (350+ lines)
+- ✅ `voidrun_godot/src/simulation_bridge.rs` — Godot visualization (400+ lines)
+- ✅ `tests/combat_integration.rs` — integration tests
 
 ---
 
-## 📋 Фаза 2: Rollback Netcode (PLANNING)
+## 🚧 Фаза 1.5: Presentation Layer Abstraction (СЛЕДУЮЩЕЕ)
 
-**Срок:** 2-3 недели
-**Статус:** 🔜 После Фазы 1
+**Срок:** 3-5 дней
+**Статус:** 🎯 Next priority (начать завтра)
+**Обновлено:** 2025-01-09
 
 ### Milestone цель:
-**2 клиента дерутся по сети с 100ms latency, rollback работает**
+**Simulation полностью independent от Godot через PresentationClient trait**
+
+### Зачем:
+- Чистая архитектура: "ассеты на Godot, крутим-вертим на Rust"
+- Headless testing без Godot dependencies
+- Моддинг: custom рендеры от community
+- Гибкость: Bevy/web renderer в будущем
 
 ### Задачи:
-- [ ] GGRS интеграция (P2P rollback netcode)
-- [ ] Snapshot/Restore через `bevy_save` или custom
-- [ ] Input prediction и reconciliation
-- [ ] 2 headless клиента по UDP
-- [ ] Latency simulation для тестов (50ms, 100ms, 150ms)
-- [ ] Property-тест: rollback не ломает детерминизм
+- [ ] `presentation` module: PresentationClient trait + PresentationEvent enum
+- [ ] Event system: simulation → event queue → client
+- [ ] GodotPresentationClient (refactor SimulationBridge)
+- [ ] HeadlessPresentationClient (no-op для tests)
+- [ ] Update tests: HeadlessClient вместо direct ECS
 
-**Пятница debug визуал:**
-- 2 окна Bevy рядом
-- Видны rollbacks (мигание/ghosting?)
-- Проверка: играбельно ли при 100ms?
+### Deliverables:
+- `voidrun_simulation/src/presentation/` — trait + events
+- `voidrun_godot/src/godot_client.rs` — Godot impl
+- Simulation без godot dependency ✅
+
+---
+
+## 📋 Фаза 2: Save/Load System (REPLANNED)
+
+**Срок:** 1-2 недели
+**Статус:** 🔜 После Фазы 1.5
+**Изменение:** Сначала single-player (save/load), потом netcode
+
+### Milestone цель:
+**Сохранение/загрузка боя mid-combat, детерминистичный replay**
+
+### Зачем раньше netcode:
+- Single-player priority (твоё решение)
+- Save/load = foundation для netcode snapshot
+- Проще тестировать детерминизм
+- Replays = debugging tool
+
+### Задачи:
+- [ ] Snapshot system: serialize world state → bytes
+- [ ] Deterministic serialization (ordered entities, components)
+- [ ] Save/Load API: save_game(path), load_game(path)
+- [ ] Replay system: record inputs → playback
+- [ ] Tests: save → load → compare snapshots
+- [ ] Godot UI: save/load menu (simple)
 
 ### Checkpoint:
-- ✅ 100ms latency = комфортно
-- ✅ Rollback < 5 тиков назад (при 64Hz = 78ms)
-- ✅ Можно позвать друга потестить
+- ✅ Можно сохранить mid-combat, загрузить → идентичное продолжение
+- ✅ Replay 1000 ticks → битва повторяется детерминистично
+- ✅ Save/Load < 100ms (performance acceptable)
 
-### Риски:
-- ⚠️ Rapier BVH может быть недетерминистичен → fallback на Plan B (custom spatial hash)
-- ⚠️ Fixed-point arithmetic может потребоваться раньше
+---
+
+## 📋 Фаза 3: Client-Server Netcode (POSTPONED)
+
+**Срок:** 2-3 недели
+**Статус:** 🔜 После Save/Load
+**Изменение:** P2P rollback → Client-Server authoritative
+
+### Решение (на основе обсуждения):
+- **НЕ** P2P rollback — не подходит для MMORPG-style
+- **ДА** Authoritative server + dumb clients
+- Локальный server mode для single-player
+- Dedicated server для multiplayer
+
+### Задачи:
+- [ ] Network protocol (Commands/Events)
+- [ ] Local server thread (IPC с client)
+- [ ] Serialization через presentation events
+- [ ] Dedicated server binary (headless)
+- [ ] Client connects via UDP
+
+### Риски отложены до Фазы 3
 
 ---
 

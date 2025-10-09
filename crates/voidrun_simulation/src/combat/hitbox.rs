@@ -26,6 +26,17 @@ pub struct AttackHitbox {
     pub lifetime: f32,
 }
 
+impl Default for AttackHitbox {
+    fn default() -> Self {
+        Self {
+            radius: 1.5,
+            damage: 0,
+            attacker: Entity::PLACEHOLDER,
+            lifetime: 0.016,
+        }
+    }
+}
+
 impl AttackHitbox {
     pub fn new(attacker: Entity, damage: u32, radius: f32) -> Self {
         Self {
@@ -126,7 +137,7 @@ pub fn spawn_attack_hitbox(
         let attacker_transform = match attacker_transforms.get(event.attacker) {
             Ok(t) => t,
             Err(_) => {
-                eprintln!("WARN: AttackStarted event: attacker entity {:?} not found", event.attacker);
+                crate::log(&format!("WARN: AttackStarted event: attacker entity {:?} not found", event.attacker));
                 continue;
             }
         };
@@ -146,8 +157,8 @@ pub fn spawn_attack_hitbox(
         ));
 
         // Debug logging (закомментировано для производительности)
-        // eprintln!("DEBUG: Spawned attack hitbox at {:?} (radius: {}, damage: {})",
-        //     hitbox_position, event.radius, event.damage);
+        // crate::log(&format!("DEBUG: Spawned attack hitbox at {:?} (radius: {}, damage: {})",
+        //     hitbox_position, event.radius, event.damage));
     }
 }
 
@@ -176,7 +187,7 @@ pub fn detect_hitbox_overlaps(
             // Проверяем overlap (простая sphere check)
             // TODO: использовать Rapier intersection queries для точности
             if distance < hitbox.radius {
-                overlap_events.send(HitboxOverlap {
+                overlap_events.write(HitboxOverlap {
                     attacker: hitbox.attacker,
                     target: target_entity,
                     damage: hitbox.damage,

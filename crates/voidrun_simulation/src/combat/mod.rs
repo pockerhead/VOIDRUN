@@ -8,11 +8,13 @@ use bevy::prelude::*;
 pub mod hitbox;
 pub mod damage;
 pub mod stamina;
+pub mod weapon;
 
 // Re-export основных типов
 pub use hitbox::{AttackHitbox, Attacker, AttackStarted, HitboxOverlap};
 pub use damage::{DamageDealt, EntityDied, Dead, calculate_damage};
 pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
+pub use weapon::{Weapon, WeaponState, spawn_weapon, collision};
 
 /// Combat Plugin
 ///
@@ -39,20 +41,30 @@ impl Plugin for CombatPlugin {
         app.add_systems(
             FixedUpdate,
             (
+                // Фаза 0: Weapon attachment (для новых actors)
+                weapon::attach_weapons_to_actors,
+
                 // Фаза 1: Cooldowns и input
                 hitbox::tick_attack_cooldowns,
 
-                // Фаза 2: Hitbox spawn и detection
+                // Фаза 2: Hitbox spawn и detection (legacy system, позже удалим)
                 hitbox::spawn_attack_hitbox,
                 hitbox::detect_hitbox_overlaps,
 
-                // Фаза 3: Damage application
+                // Фаза 2.5: Weapon swing triggering
+                weapon::trigger_weapon_swing,
+                weapon::weapon_swing_animation,
+
+                // Фаза 3: Weapon collision detection (новая система)
+                weapon::weapon_collision_detection,
+
+                // Фаза 4: Damage application
                 damage::apply_damage,
 
-                // Фаза 4: Death handling (AI отключение, деспавна нет — трупы остаются)
+                // Фаза 5: Death handling (AI отключение, деспавна нет — трупы остаются)
                 damage::disable_ai_on_death,
 
-                // Фаза 5: Stamina management
+                // Фаза 6: Stamina management
                 stamina::consume_stamina_on_attack,
                 stamina::regenerate_stamina,
                 stamina::detect_exhaustion,

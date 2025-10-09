@@ -10,6 +10,7 @@ use godot::classes::{
 use voidrun_simulation::*;
 use crate::camera::rts_camera::RTSCamera3D;
 use voidrun_simulation::ai::AIState;
+use voidrun_simulation::combat::{Weapon, WeaponState};
 
 /// Мост между Godot и Rust ECS симуляцией (100% Rust, no GDScript)
 ///
@@ -30,6 +31,15 @@ pub struct SimulationBridge {
     /// Health bar labels над NPC
     health_labels: Vec<Gd<Label3D>>,
 
+    /// Stamina bar labels под health bar
+    stamina_labels: Vec<Gd<Label3D>>,
+
+    /// AI state labels над health bar
+    ai_state_labels: Vec<Gd<Label3D>>,
+
+    /// Weapon meshes для каждого NPC
+    weapon_meshes: Vec<Gd<MeshInstance3D>>,
+
     /// Entity indices для синхронизации
     entity_indices: Vec<u32>,
 }
@@ -42,6 +52,9 @@ impl INode3D for SimulationBridge {
             simulation: None,
             npc_visuals: Vec::new(),
             health_labels: Vec::new(),
+            stamina_labels: Vec::new(),
+            ai_state_labels: Vec::new(),
+            weapon_meshes: Vec::new(),
             entity_indices: Vec::new(),
         }
     }
@@ -60,6 +73,7 @@ impl INode3D for SimulationBridge {
 
         // 4. Инициализируем ECS симуляцию
         let mut app = create_headless_app(42);
+        voidrun_simulation::set_logger(Box::new(GodotLogger));
         app.add_plugins(SimulationPlugin);
 
         // 5. Спавним 2 NPC в симуляции (с разными характеристиками для асимметрии)
@@ -154,9 +168,9 @@ impl SimulationBridge {
         godot_print!("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
     }
 
-    /// Создать визуал NPC (capsule mesh + health label)
+    /// Создать визуал NPC (capsule mesh + health/stamina/AI labels + weapon)
     fn create_npc_visual(&mut self, _index: usize, color: Color) {
-        // Capsule mesh
+        // Capsule mesh (тело актора)
         let mut mesh_instance = MeshInstance3D::new_alloc();
 
         let mut capsule = CapsuleMesh::new_gd();
@@ -169,21 +183,62 @@ impl SimulationBridge {
         material.set_albedo(color);
         mesh_instance.set_surface_override_material(0, &material.upcast::<Material>());
 
-        // Health label над головой
-        let mut label = Label3D::new_alloc();
-        label.set_text("HP: 100/100");
-        label.set_pixel_size(0.005);
-        label.set_billboard_mode(BillboardMode::ENABLED);
-        label.set_position(Vector3::new(0.0, 1.2, 0.0));
+        // AI state label (над головой, выше health)
+        let mut ai_label = Label3D::new_alloc();
+        ai_label.set_text("[Idle]");
+        ai_label.set_pixel_size(0.004);
+        ai_label.set_billboard_mode(BillboardMode::ENABLED);
+        ai_label.set_position(Vector3::new(0.0, 1.4, 0.0));
+        ai_label.set_modulate(Color::from_rgb(0.8, 0.8, 0.2)); // Желтый
+        mesh_instance.add_child(&ai_label.clone().upcast::<Node>());
 
-        // Label — child of mesh
-        mesh_instance.add_child(&label.clone().upcast::<Node>());
+        // Health label над головой
+        let mut health_label = Label3D::new_alloc();
+        health_label.set_text("HP: 100/100");
+        health_label.set_pixel_size(0.005);
+        health_label.set_billboard_mode(BillboardMode::ENABLED);
+        health_label.set_position(Vector3::new(0.0, 1.2, 0.0));
+        mesh_instance.add_child(&health_label.clone().upcast::<Node>());
+
+        // Stamina label под health
+        let mut stamina_label = Label3D::new_alloc();
+        stamina_label.set_text("Stamina: 100/100");
+        stamina_label.set_pixel_size(0.004);
+        stamina_label.set_billboard_mode(BillboardMode::ENABLED);
+        stamina_label.set_position(Vector3::new(0.0, 1.0, 0.0));
+        stamina_label.set_modulate(Color::from_rgb(0.2, 0.8, 0.2)); // Зелёный
+        mesh_instance.add_child(&stamina_label.clone().upcast::<Node>());
+
+        // Weapon mesh (меч-капсула, child of actor)
+        let mut weapon_mesh = MeshInstance3D::new_alloc();
+        let mut weapon_capsule = CapsuleMesh::new_gd();
+        weapon_capsule.set_radius(0.08); // Тонкий меч
+        weapon_capsule.set_height(1.5); // Длина 1.5m (чтобы достать до врага на 2м)
+        weapon_mesh.set_mesh(&weapon_capsule.upcast::<Mesh>());
+
+        // Weapon материал (серебристый металл)
+        let mut weapon_material = StandardMaterial3D::new_gd();
+        weapon_material.set_albedo(Color::from_rgb(0.7, 0.7, 0.8));
+        weapon_material.set_metallic(0.9);
+        weapon_material.set_roughness(0.2);
+        weapon_mesh.set_surface_override_material(0, &weapon_material.upcast::<Material>());
+
+        // Weapon position: впереди актора (на уровне руки), сдвинут вперёд на половину длины
+        weapon_mesh.set_position(Vector3::new(0.3, 0.3, 1.0)); // Вправо 0.3, вверх 0.3 (рука), вперёд 1.0
+
+        // Weapon rotation: повернут по диагонали (45° вправо, 30° вниз)
+        weapon_mesh.set_rotation_degrees(Vector3::new(-30.0, 0.0, 45.0));
+
+        mesh_instance.add_child(&weapon_mesh.clone().upcast::<Node>());
 
         // Добавляем в сцену
         self.base_mut().add_child(&mesh_instance.clone().upcast::<Node>());
 
         self.npc_visuals.push(mesh_instance);
-        self.health_labels.push(label);
+        self.health_labels.push(health_label);
+        self.stamina_labels.push(stamina_label);
+        self.ai_state_labels.push(ai_label);
+        self.weapon_meshes.push(weapon_mesh);
     }
 
     /// Синхронизировать визуалы с ECS state
@@ -284,7 +339,7 @@ impl SimulationBridge {
             for (i, &entity_index) in self.entity_indices.iter().enumerate() {
                 let entity = bevy::prelude::Entity::from_raw(entity_index);
 
-                // Синхронизируем transform
+                // Синхронизируем transform актора
                 if let Some(transform) = world.get::<bevy::prelude::Transform>(entity) {
                     let pos = transform.translation;
                     self.npc_visuals[i].set_position(Vector3::new(pos.x, pos.y, pos.z));
@@ -294,6 +349,41 @@ impl SimulationBridge {
                 if let Some(health) = world.get::<Health>(entity) {
                     let text = format!("HP: {}/{}", health.current, health.max);
                     self.health_labels[i].set_text(&text);
+                }
+
+                // Обновляем stamina label
+                if let Some(stamina) = world.get::<Stamina>(entity) {
+                    let text = format!("Stamina: {:.0}/{:.0}", stamina.current, stamina.max);
+                    self.stamina_labels[i].set_text(&text);
+                }
+
+                // Обновляем AI state label
+                if let Some(ai_state) = world.get::<AIState>(entity) {
+                    let text = format!("[{:?}]", ai_state);
+                    self.ai_state_labels[i].set_text(&text);
+                }
+
+                // Синхронизируем weapon rotation (swing animation)
+                if let Some(children) = world.get::<bevy::prelude::Children>(entity) {
+                    for &child in children.iter() {
+                        if let Some(weapon) = world.get::<Weapon>(child) {
+                            // Синхронизируем rotation weapon mesh с Rust weapon transform
+                            if let Some(weapon_transform) = world.get::<bevy::prelude::Transform>(child) {
+                                let rot = weapon_transform.rotation;
+                                let (x, y, z) = rot.to_euler(bevy::math::EulerRot::XYZ);
+                                self.weapon_meshes[i].set_rotation(Vector3::new(x, y, z));
+
+                                // DEBUG: показываем weapon state
+                                static mut LAST_STATE: Option<WeaponState> = None;
+                                unsafe {
+                                    if LAST_STATE != Some(weapon.state) {
+                                        godot_print!("Weapon {} state: {:?}", i, weapon.state);
+                                        LAST_STATE = Some(weapon.state);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -348,4 +438,12 @@ fn spawn_test_npc(
             retreat_duration: 1.5,            // Быстрее возвращаются в бой
         },
     )).id()
+}
+
+struct GodotLogger;
+
+impl LogPrinter for GodotLogger {
+    fn log(&self, message: &str) {
+        godot_print!("{}", message);
+    }
 }

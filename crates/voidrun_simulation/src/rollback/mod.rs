@@ -1,66 +1,27 @@
-//! Rollback netcode infrastructure
+//! Rollback marker component
+//!
+//! Маркирует entities которые будут реплицироваться по сети в будущем.
+//! Сейчас используется для детерминистичной симуляции и save/load системы.
 //!
 //! Архитектура:
-//! - GGRS (Good Game Rollback System) для P2P deterministic rollback
-//! - Snapshot/Restore mechanism для всех rollback-managed components
-//! - Rollback marker component для entities которые участвуют в rollback
-//!
-//! Требования:
-//! - Все rollback components должны быть Clone + Reflect
 //! - Детерминизм: fixed timestep (64Hz), seeded RNG, ordered systems
-//! - Checksum validation для desyncs detection
+//! - Entities с Rollback участвуют в snapshot для сохранений
+//! - В будущем: client-server репликация (не P2P)
 
 use bevy::prelude::*;
 
-// GGRS configuration (раскомментировать когда bevy_ggrs добавлен в Cargo.toml)
-// pub mod ggrs_config;
-// pub use ggrs_config::{VoidrunGGRSConfig, encode_input, decode_input, create_world_checksum};
-
 /// Rollback marker component
 ///
-/// Добавляется к entities которые управляются rollback netcode.
-/// Entities без Rollback компонента не будут сохраняться в snapshot.
+/// Добавляется к entities которые управляются детерминистичной симуляцией
+/// и будут сохраняться в snapshot для save/load системы.
 ///
 /// Примеры:
-/// - Player/NPC actors — YES (rollback managed)
+/// - Player/NPC actors — YES (replicated)
 /// - UI elements — NO (local только)
 /// - Particle effects — NO (visual only)
 #[derive(Component, Debug, Clone, Copy, Default, Reflect)]
 #[reflect(Component)]
 pub struct Rollback;
-
-/// Регистрирует все rollback components для GGRS
-///
-/// ВАЖНО: каждый компонент который участвует в rollback должен быть здесь.
-/// Раскомментировать когда bevy_ggrs будет добавлен в Cargo.toml
-#[allow(dead_code)]
-pub fn register_rollback_components(_app: &mut App) {
-    // TODO: Раскомментировать когда bevy_ggrs активен
-    /*
-    // Core components
-    app.register_rollback_component::<Transform>();
-    app.register_rollback_component::<crate::components::Actor>();
-    app.register_rollback_component::<crate::components::Health>();
-    app.register_rollback_component::<crate::components::Stamina>();
-    app.register_rollback_component::<crate::components::PhysicsBody>();
-
-    // Physics components
-    app.register_rollback_component::<crate::physics::KinematicController>();
-    app.register_rollback_component::<crate::physics::MovementInput>();
-
-    // Combat components
-    app.register_rollback_component::<crate::combat::Attacker>();
-    app.register_rollback_component::<crate::combat::AttackHitbox>();
-    app.register_rollback_component::<crate::combat::Exhausted>();
-
-    // AI components
-    app.register_rollback_component::<crate::ai::AIState>();
-    app.register_rollback_component::<crate::ai::AIConfig>();
-
-    // Rollback marker
-    app.register_rollback_component::<Rollback>();
-    */
-}
 
 #[cfg(test)]
 mod tests {
@@ -92,7 +53,7 @@ mod tests {
         assert!(world.get::<Stamina>(entity).is_some());
     }
 
-    /// Test: проверяем что компоненты Clone + Reflect (требование GGRS)
+    /// Test: проверяем что компоненты Clone + Reflect
     #[test]
     fn test_components_cloneable() {
         let health = Health::new(100);

@@ -14,10 +14,8 @@ use voidrun_simulation::*;
 fn create_combat_app(seed: u64) -> App {
     let mut app = create_headless_app(seed);
 
-    // Добавляем все необходимые plugins
-    app.add_plugins(KinematicControllerPlugin)
-        .add_plugins(CombatPlugin)
-        .add_plugins(AIPlugin);
+    // Используем SimulationPlugin (включает rapier + все подсистемы)
+    app.add_plugins(SimulationPlugin);
 
     app
 }
@@ -74,7 +72,7 @@ fn test_two_npcs_fight_1000_ticks() {
         }
     }
 
-    eprintln!("✓ Combat integration test: 1000 ticks completed without crash");
+    crate::log("✓ Combat integration test: 1000 ticks completed without crash");
 }
 
 /// Test: детерминизм — 3 прогона с seed=42 дают идентичные результаты
@@ -98,7 +96,7 @@ fn test_combat_determinism_three_runs() {
         "Combat determinism failed: run 2 != run 3"
     );
 
-    eprintln!("✓ Combat determinism: 3 runs with seed={} are identical", SEED);
+    crate::log(&format!("✓ Combat determinism: 3 runs with seed={} are identical", SEED));
 }
 
 /// Test: health/stamina инварианты сохраняются
@@ -166,7 +164,7 @@ fn test_health_stamina_invariants() {
         }
     }
 
-    eprintln!("✓ Health/Stamina invariants: 500 ticks, all checks passed");
+    crate::log("✓ Health/Stamina invariants: 500 ticks, all checks passed");
 }
 
 // --- Helpers ---
