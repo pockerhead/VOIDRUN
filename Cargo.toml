@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/voidrun_simulation",
+    "crates/voidrun_client",
+    "crates/voidrun_godot",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["VOIDRUN Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/voidrun"
+
+[workspace.dependencies]
+# Bevy ECS 0.16 (validated 2024-2025)
+# MinimalPlugins уже включает bevy_core, bevy_time, bevy_ecs
+bevy = { version = "0.16", default-features = false, features = ["multi_threaded"] }
+
+# Deterministic RNG (для Фазы 0)
+rand = "0.8"
+rand_chacha = "0.3"
+
+# Serialization (для snapshots)
+serde = { version = "1.0", features = ["derive"] }
+
+# === Добавим позже по мере необходимости ===
+# Фаза 1: Physics Setup
+bevy_rapier3d = { version = "0.31", features = ["parallel", "enhanced-determinism"] }
+# ВАЖНО: simd несовместим с enhanced-determinism (конфликт остался в 0.31)
+# Версия 0.31 поддерживает Bevy 0.16 нативно (rapier 0.27)
+
+# Фаза 2: Rollback Netcode
+# bevy_ggrs = { version = "0.20", features = ["p2p"] }
+# v0.20 поддерживает Bevy 0.16 (проверено 2025)
+# GGRS 0.10 (deterministic P2P rollback netcode)
+
+[profile.dev]
+opt-level = 1  # Ускоряет dev builds Bevy
+
+[profile.dev.package."*"]
+opt-level = 3  # Dependencies на максимуме даже в dev

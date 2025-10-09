@@ -1,0 +1,22 @@
+[package]
+name = "voidrun_godot"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"] # Dynamic library для GDExtension
+
+[dependencies]
+# Godot 4.3+ GDExtension bindings
+godot = { git = "https://github.com/godot-rust/gdext", branch = "master", features = ["experimental-threads"] }
+# Наша симуляция
+voidrun_simulation = { path = "../voidrun_simulation" }
+# Bevy для direct доступа к ECS типам
+bevy = { workspace = true }
+
+[profile.dev]
+opt-level = 1 # Быстрее компиляция в dev
+
+[profile.release]
+opt-level = 3
+lto = true # Link-time optimization для production

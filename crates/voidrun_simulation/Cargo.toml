@@ -1,0 +1,26 @@
+[package]
+name = "voidrun_simulation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy = { workspace = true }
+bevy_rapier3d = { workspace = true }
+# bevy_ggrs = { workspace = true }  # Фаза 2 (пока закомментировано)
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+# proptest — добавим когда понадобятся property-based тесты
+# Для простых детерминизм-тестов достаточно обычных assert'ов
+
+[lib]
+name = "voidrun_simulation"
+path = "src/lib.rs"
+
+[[bin]]
+name = "voidrun_simulation"
+path = "src/main.rs"

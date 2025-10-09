@@ -1,0 +1,12 @@
+[package]
+name = "voidrun_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.16", features = ["default"] }
+voidrun_simulation = { path = "../voidrun_simulation" }
+
+[features]
+default = []
+dev = ["bevy/dynamic_linking"] # Faster compile times in dev

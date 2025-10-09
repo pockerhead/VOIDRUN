@@ -1,0 +1,19 @@
+# Детерминизм: отключаем FMA (Fused Multiply-Add) инструкции
+# Причина: FMA может давать разные результаты на Intel vs AMD CPU
+# Источник: Box2D 2024 determinism approach, physics-architecture.md
+
+[build]
+rustflags = ["-C", "target-feature=-fma"]
+
+# Опционально: линкер оптимизации для быстрых билдов
+# Раскомментируй на своей платформе:
+
+# [target.x86_64-pc-windows-msvc]
+# linker = "rust-lld.exe"
+
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-feature=-fma"]
+
+# [target.x86_64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-feature=-fma"]
