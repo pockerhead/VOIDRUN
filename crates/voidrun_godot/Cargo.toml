@@ -8,14 +8,13 @@ crate-type = ["cdylib"] # Dynamic library для GDExtension
 
 [dependencies]
 # Godot 4.3+ GDExtension bindings
-godot = { git = "https://github.com/godot-rust/gdext", branch = "master", features = ["experimental-threads"] }
+godot = { git = "https://github.com/godot-rust/gdext", branch = "master", features = ["experimental-threads", "experimental-godot-api"] }
 # Наша симуляция
 voidrun_simulation = { path = "../voidrun_simulation" }
 # Bevy для direct доступа к ECS типам
 bevy = { workspace = true }
-
-[profile.dev]
-opt-level = 1 # Быстрее компиляция в dev
+# Logging с timestamps
+chrono = "0.4"
 
 [profile.release]
 opt-level = 3

@@ -75,7 +75,7 @@ impl INode3D for RTSCamera3D {
             self.zoom_target = cam.get_position().z;
         }
 
-        godot_print!("RTSCamera3D ready (Rust)");
+        voidrun_simulation::log("RTSCamera3D ready (Rust)");
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {

@@ -24,20 +24,12 @@ rand_chacha = "0.3"
 # Serialization (для snapshots)
 serde = { version = "1.0", features = ["derive"] }
 
-# === Добавим позже по мере необходимости ===
-# Фаза 1: Physics Setup
-bevy_rapier3d = { version = "0.31", default-features = false, features = ["parallel", "enhanced-determinism", "dim3"] }
-# ВАЖНО:
-# - simd несовместим с enhanced-determinism (конфликт остался в 0.31)
-# - default-features = false отключает async-collider (требует Assets<Mesh>)
-# - Версия 0.31 поддерживает Bevy 0.16 нативно (rapier 0.27)
-
 # Фаза 2: Server-Client Netcode (TODO: later)
 # bevy_renet или lightyear для client-server архитектуры
 # Пока фокус на single-player simulation
 
 [profile.dev]
-opt-level = 1  # Ускоряет dev builds Bevy
+opt-level = 0  # Твой код: максимально быстрая компиляция
 
 [profile.dev.package."*"]
-opt-level = 3  # Dependencies на максимуме даже в dev
+opt-level = 1  # Dependencies: компромисс (быстрая компиляция + не тормозит игру)

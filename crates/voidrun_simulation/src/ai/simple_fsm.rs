@@ -1,45 +1,52 @@
-//! Simple FSM AI для combat
+//! Simple FSM AI для combat (Godot-driven architecture)
 //!
-//! Конечный автомат для NPC aggro behavior:
-//! Idle → Aggro → Approach → Attack → Retreat → Idle
+//! ECS ответственность:
+//! - State machine logic (Idle → Patrol → Combat)
+//! - Decisions (когда атаковать, куда патрулировать)
+//! - Target tracking (кто кого видит)
 //!
-//! Архитектура:
-//! - FSM работает на 1Hz (или FixedUpdate для детерминизма в тестах)
-//! - State transitions основаны на distance, health, stamina
-//! - Attack state генерирует AttackStarted события
+//! Godot ответственность:
+//! - VisionCone (Area3D) → GodotAIEvent (ActorSpotted/ActorLost)
+//! - Pathfinding (NavigationAgent3D)
+//! - Movement execution (CharacterBody3D)
+//!
+//! Architecture: ADR-005 (Godot authoritative), event-driven AI
 
 use bevy::prelude::*;
-use crate::components::{Actor, Health, Stamina};
-use crate::physics::MovementInput;
-use crate::combat::{Attacker, AttackStarted, ATTACK_COST};
+use crate::components::{Actor, Health, Stamina, MovementCommand};
+use crate::combat::Attacker;
+use crate::ai::GodotAIEvent;
 
-/// AI FSM состояния
+/// AI FSM состояния (event-driven)
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component)]
 pub enum AIState {
-    /// Idle — ничего не делаем, ждем врага
+    /// Idle — начальное состояние после спавна
     Idle,
 
-    /// Aggro — заметили врага, решаем атаковать
-    Aggro {
+    /// Patrol — случайное движение в поисках врагов
+    Patrol {
+        /// Время до следующей смены направления
+        next_direction_timer: f32,
+        /// Текущая target позиция патруля (генерируется случайно)
+        target_position: Option<Vec3>,
+    },
+
+    /// Combat — бой с обнаруженным врагом
+    Combat {
         target: Entity,
     },
 
-    /// Approach — подходим к врагу в радиус атаки
-    Approach {
-        target: Entity,
-    },
-
-    /// Attack — атакуем (swing + cooldown)
-    Attack {
-        target: Entity,
-    },
-
-    /// Retreat — отступаем для восстановления stamina
+    /// Retreat — отступление для восстановления
     Retreat {
         /// Время отступления (секунды)
         timer: f32,
+        /// От кого отступаем (опционально)
+        from_target: Option<Entity>,
     },
+
+    /// Dead — актёр мертв (HP == 0), AI отключен
+    Dead,
 }
 
 impl Default for AIState {
@@ -48,206 +55,325 @@ impl Default for AIState {
     }
 }
 
-/// Параметры AI (aggressiveness, detection range, etc.)
+/// Component: tracking spotted enemies (от GodotAIEvent)
+///
+/// Обновляется через ActorSpotted/ActorLost events.
+/// AI использует для выбора target из множества spotted врагов.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct SpottedEnemies {
+    pub enemies: Vec<Entity>,
+}
+
+/// Параметры AI
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
 pub struct AIConfig {
-    /// Радиус обнаружения врагов (метры)
-    pub detection_range: f32,
     /// Stamina порог для отступления (percent)
     pub retreat_stamina_threshold: f32,
     /// Health порог для отступления (percent)
     pub retreat_health_threshold: f32,
     /// Время отступления (секунды)
     pub retreat_duration: f32,
+    /// Patrol: время между сменой направления (секунды)
+    pub patrol_direction_change_interval: f32,
 }
 
 impl Default for AIConfig {
     fn default() -> Self {
         Self {
-            detection_range: 10.0,
             retreat_stamina_threshold: 0.3, // 30% stamina
             retreat_health_threshold: 0.2,  // 20% health
             retreat_duration: 2.0,
+            patrol_direction_change_interval: 10.0, // Каждые 10 сек новое направление (было 3 сек)
         }
     }
 }
 
-/// Система: AI FSM transitions
+/// Система: обновление SpottedEnemies из GodotAIEvent
 ///
-/// Обновляет AIState на основе окружения (target distance, health, stamina).
+/// Читает ActorSpotted/ActorLost events → обновляет SpottedEnemies компонент.
+/// Также очищает мёртвые entities из списка (VisionCone не отправляет ActorLost при смерти).
+pub fn update_spotted_enemies(
+    mut ai_query: Query<&mut SpottedEnemies>,
+    mut ai_events: EventReader<GodotAIEvent>,
+    potential_targets: Query<&Health>, // Для проверки что target жив
+) {
+    for event in ai_events.read() {
+        match event {
+            GodotAIEvent::ActorSpotted { observer, target } => {
+                if let Ok(mut spotted) = ai_query.get_mut(*observer) {
+                    if !spotted.enemies.contains(target) {
+                        spotted.enemies.push(*target);
+                    }
+                }
+            }
+            GodotAIEvent::ActorLost { observer, target } => {
+                if let Ok(mut spotted) = ai_query.get_mut(*observer) {
+                    spotted.enemies.retain(|&e| e != *target);
+                }
+            }
+        }
+    }
+
+    // Очищаем мёртвые entities из всех SpottedEnemies
+    for mut spotted in ai_query.iter_mut() {
+        let initial_count = spotted.enemies.len();
+        spotted.enemies.retain(|&e| {
+            potential_targets
+                .get(e)
+                .map(|h| h.is_alive())
+                .unwrap_or(false) // Если entity despawned или нет Health — удаляем
+        });
+
+        let removed_count = initial_count - spotted.enemies.len();
+        if removed_count > 0 {
+            crate::log(&format!("AI: Removed {} dead/invalid targets from SpottedEnemies", removed_count));
+        }
+    }
+}
+
+/// Система: AI FSM transitions (event-driven)
+///
+/// Обновляет AIState на основе SpottedEnemies, health, stamina.
+/// Порядок приоритетов:
+/// 1. Retreat (если low health/stamina)
+/// 2. Combat (если есть spotted enemies)
+/// 3. Patrol (если никого не видим)
 pub fn ai_fsm_transitions(
     mut ai_query: Query<(
         Entity,
-        &Actor,
-        &Transform,
         &mut AIState,
+        &SpottedEnemies,
         &AIConfig,
         &Health,
         &Stamina,
-        &Attacker,
+        &Transform,
     )>,
-    potential_targets: Query<(Entity, &Actor, &Transform, &Health)>,
+    potential_targets: Query<&Health>, // Для проверки что target жив
     time: Res<Time<Fixed>>,
 ) {
     let delta = time.delta_secs();
 
-    let ai_count = ai_query.iter().count();
-    if ai_count > 0 {
-        crate::log(&format!("DEBUG: ai_fsm_transitions running, {} AI entities found", ai_count));
-    }
+    for (entity, mut state, spotted, config, health, stamina, transform) in ai_query.iter_mut() {
+        let stamina_percent = stamina.current / stamina.max;
+        let health_percent = health.current as f32 / health.max as f32;
 
-    for (entity, actor, transform, mut state, config, health, stamina, attacker) in ai_query.iter_mut() {
+        // Проверяем нужно ли отступить
+        let should_retreat = stamina_percent < config.retreat_stamina_threshold
+            || health_percent < config.retreat_health_threshold;
+
         let new_state = match state.as_ref() {
+            AIState::Dead => {
+                // Dead state — не переключаемся
+                continue;
+            }
+
             AIState::Idle => {
-                // Ищем ближайшего живого врага (другой фракции)
-                crate::log(&format!("DEBUG: Entity {:?} (faction {}) searching for enemy at pos {:?}",
-                    entity, actor.faction_id, transform.translation));
-
-                if let Some(target) = find_nearest_enemy(
-                    entity,
-                    actor.faction_id,
-                    transform,
-                    &potential_targets,
-                    config.detection_range,
-                ) {
-                    crate::log(&format!("DEBUG: Entity {:?} found enemy {:?}, switching to Aggro", entity, target));
-                    AIState::Aggro { target }
-                } else {
-                    crate::log(&format!("DEBUG: Entity {:?} found NO enemies", entity));
-                    AIState::Idle
+                // Idle → Patrol (начинаем патрулировать)
+                crate::log(&format!("AI: {:?} Idle → Patrol", entity));
+                AIState::Patrol {
+                    next_direction_timer: config.patrol_direction_change_interval,
+                    target_position: None, // Будет сгенерирована в ai_movement_from_state
                 }
             }
 
-            AIState::Aggro { target } => {
-                // Проверяем что target еще жив и в радиусе
-                if is_valid_target(*target, &potential_targets) {
-                    AIState::Approach { target: *target }
-                } else {
-                    AIState::Idle
-                }
-            }
-
-            AIState::Approach { target } => {
-                // Проверяем distance до target
-                if let Ok((_, _, target_transform, target_health)) = potential_targets.get(*target) {
-                    if !target_health.is_alive() {
-                        AIState::Idle
-                    } else {
-
-                        let distance = transform.translation.distance(target_transform.translation);
-
-                        // Проверяем порог retreat
-                        let stamina_percent = stamina.current / stamina.max;
-                        let health_percent = health.current as f32 / health.max as f32;
-
-                        if stamina_percent < config.retreat_stamina_threshold
-                            || health_percent < config.retreat_health_threshold
-                        {
-                            AIState::Retreat {
-                                timer: config.retreat_duration,
-                            }
-                        } else if distance < attacker.attack_radius {
-                            // В радиусе атаки
-                            AIState::Attack { target: *target }
+            AIState::Patrol { next_direction_timer, target_position } => {
+                // Если spotted enemy → Combat
+                if let Some(&target) = spotted.enemies.first() {
+                    // Проверяем что target жив
+                    if let Ok(target_health) = potential_targets.get(target) {
+                        if target_health.is_alive() {
+                            crate::log(&format!("AI: {:?} Patrol → Combat (target {:?})", entity, target));
+                            AIState::Combat { target }
                         } else {
-                            // Продолжаем подходить
-                            AIState::Approach { target: *target }
+                            // Target мертв, продолжаем патруль
+                            AIState::Patrol {
+                                next_direction_timer: *next_direction_timer,
+                                target_position: *target_position,
+                            }
+                        }
+                    } else {
+                        AIState::Patrol {
+                            next_direction_timer: *next_direction_timer,
+                            target_position: *target_position,
                         }
                     }
                 } else {
-                    AIState::Idle
+                    // Продолжаем патруль, обновляем таймер
+                    let new_timer = (*next_direction_timer - delta).max(0.0);
+
+                    // Если таймер истёк → генерируем новую patrol точку
+                    let new_target = if new_timer <= 0.0 {
+                        use rand::Rng;
+                        let mut rng = rand::thread_rng();
+
+                        let angle = rng.gen::<f32>() * std::f32::consts::TAU;
+                        let distance = 5.0 + rng.gen::<f32>() * 100.0; // 5-15м radius
+                        let offset = Vec3::new(angle.cos() * distance, 0.0, angle.sin() * distance);
+                        let patrol_target = transform.translation + offset;
+
+                        Some(patrol_target)
+                    } else {
+                        *target_position
+                    };
+
+                    AIState::Patrol {
+                        next_direction_timer: if new_timer <= 0.0 {
+                            config.patrol_direction_change_interval
+                        } else {
+                            new_timer
+                        },
+                        target_position: new_target,
+                    }
                 }
             }
 
-            AIState::Attack { target } => {
-                // Проверяем что target еще жив
-                if let Ok((_, _, _, target_health)) = potential_targets.get(*target) {
-                    if !target_health.is_alive() {
-                        AIState::Idle
-                    } else {
-
-                        // Проверяем stamina/health для retreat
-                        let stamina_percent = stamina.current / stamina.max;
-                        let health_percent = health.current as f32 / health.max as f32;
-
-                        if stamina_percent < config.retreat_stamina_threshold
-                            || health_percent < config.retreat_health_threshold
-                        {
-                            AIState::Retreat {
-                                timer: config.retreat_duration,
-                            }
-                        } else {
-                            // Продолжаем атаковать
-                            AIState::Attack { target: *target }
-                        }
+            AIState::Combat { target } => {
+                // Проверяем retreat conditions
+                if should_retreat {
+                    crate::log(&format!("AI: {:?} Combat → Retreat (low hp/stamina)", entity));
+                    AIState::Retreat {
+                        timer: config.retreat_duration,
+                        from_target: Some(*target),
                     }
                 } else {
-                    AIState::Idle
+                    // Проверяем что target еще spotted и жив
+                    let target_valid = spotted.enemies.contains(target)
+                        && potential_targets
+                            .get(*target)
+                            .map(|h| h.is_alive())
+                            .unwrap_or(false);
+
+                    if !target_valid {
+                        // Target потерян или мертв → ищем нового или патруль
+                        if let Some(&new_target) = spotted.enemies.first() {
+                            crate::log(&format!("AI: {:?} Combat: target lost, switching to {:?}", entity, new_target));
+                            AIState::Combat { target: new_target }
+                        } else {
+                            crate::log(&format!("AI: {:?} Combat → Patrol (no targets)", entity));
+                            AIState::Patrol {
+                                next_direction_timer: config.patrol_direction_change_interval,
+                                target_position: None,
+                            }
+                        }
+                    } else {
+                        // Продолжаем бой
+                        AIState::Combat { target: *target }
+                    }
                 }
             }
 
-            AIState::Retreat { timer } => {
-                let new_timer = timer - delta;
+            AIState::Retreat { timer, from_target } => {
+                let new_timer = (*timer - delta).max(0.0);
 
                 if new_timer <= 0.0 {
-                    // Восстановились, возвращаемся к idle
-                    AIState::Idle
+                    // Retreat закончен
+                    if let Some(&target) = spotted.enemies.first() {
+                        // Есть spotted enemy → обратно в Combat
+                        crate::log(&format!("AI: {:?} Retreat → Combat", entity));
+                        AIState::Combat { target }
+                    } else {
+                        // Никого нет → Patrol
+                        crate::log(&format!("AI: {:?} Retreat → Patrol", entity));
+                        AIState::Patrol {
+                            next_direction_timer: config.patrol_direction_change_interval,
+                            target_position: None,
+                        }
+                    }
                 } else {
-                    // Продолжаем отступать
-                    AIState::Retreat { timer: new_timer }
+                    // Продолжаем retreat
+                    AIState::Retreat {
+                        timer: new_timer,
+                        from_target: *from_target,
+                    }
                 }
             }
         };
 
-        *state = new_state;
+        if *state != new_state {
+            *state = new_state;
+        }
     }
 }
 
-/// Система: AI movement от FSM state
+/// Система: AI movement from state
 ///
-/// Конвертирует AIState в MovementInput для physics системы.
+/// Конвертирует AIState → MovementCommand для Godot.
 pub fn ai_movement_from_state(
-    mut ai_query: Query<(Entity, &Transform, &AIState, &mut MovementInput)>,
-    targets: Query<(Entity, &Transform)>,
+    mut ai_query: Query<(&AIState, &mut MovementCommand, &Transform)>,
+    targets_query: Query<&Transform>,
 ) {
-    const MIN_DISTANCE: f32 = 2.0; // Attack range (weapon 0.8m + hitbox radius)
-
-    for (_entity, transform, state, mut movement) in ai_query.iter_mut() {
+    for (state, mut command, transform) in ai_query.iter_mut() {
         match state {
-            AIState::Idle => {
-                // Не двигаемся
-                movement.direction = Vec3::ZERO;
-            }
-
-            AIState::Aggro { target } | AIState::Approach { target } => {
-                // Двигаемся к target
-                if let Ok((_, target_transform)) = targets.get(*target) {
-                    let to_target = target_transform.translation - transform.translation;
-                    let distance = to_target.length();
-
-                    if distance > MIN_DISTANCE {
-                        // Достаточно далеко — идём к цели
-                        movement.direction = to_target.normalize_or_zero();
-                    } else {
-                        // Слишком близко — стоим на месте
-                        movement.direction = Vec3::ZERO;
-                    }
-                } else {
-                    movement.direction = Vec3::ZERO;
+            AIState::Dead => {
+                // Dead — не двигаемся
+                if !matches!(*command, MovementCommand::Idle) {
+                    *command = MovementCommand::Idle;
                 }
             }
 
-            AIState::Attack { .. } => {
-                // Стоим на месте во время атаки
-                movement.direction = Vec3::ZERO;
+            AIState::Idle => {
+                if !matches!(*command, MovementCommand::Idle) {
+                    *command = MovementCommand::Idle;
+                }
             }
 
-            AIState::Retreat { .. } => {
-                // Отступаем назад (reverse direction к ближайшему врагу)
-                // Упрощенная версия: просто стоим на месте, восстанавливаем stamina
-                movement.direction = Vec3::ZERO;
-                // TODO: в будущем можно добавить pathfinding от врагов
+            AIState::Patrol { target_position, .. } => {
+                // Двигаемся к сгенерированной patrol точке (генерируется в ai_fsm_transitions)
+                if let Some(target) = target_position {
+                    // Проверяем что команда изменилась — иначе Changed<MovementCommand> спамит
+                    if !matches!(*command, MovementCommand::MoveToPosition { target: t } if t == *target) {
+                        *command = MovementCommand::MoveToPosition {
+                            target: *target,
+                        };
+                    }
+                } else {
+                    // Нет target позиции → Idle (будет сгенерирована при следующем тике)
+                    if !matches!(*command, MovementCommand::Idle) {
+                        *command = MovementCommand::Idle;
+                    }
+                }
+            }
+
+            AIState::Combat { target } => {
+                // Двигаемся к target (каждый frame обновляем, target движется!)
+                if let Ok(target_transform) = targets_query.get(*target) {
+                    let target_pos = target_transform.translation;
+                    // Combat: target двигается → обновляем каждый frame
+                    // НЕ проверяем matches, потому что позиция меняется
+                    *command = MovementCommand::MoveToPosition {
+                        target: target_pos,
+                    };
+                } else {
+                    if !matches!(*command, MovementCommand::Idle) {
+                        *command = MovementCommand::Idle;
+                    }
+                }
+            }
+
+            AIState::Retreat { from_target, .. } => {
+                // Отступаем от target (противоположное направление)
+                if let Some(target_entity) = from_target {
+                    if let Ok(target_transform) = targets_query.get(*target_entity) {
+                        let to_target = target_transform.translation - transform.translation;
+                        let retreat_direction = -to_target.normalize();
+                        let retreat_position = transform.translation + retreat_direction * 5.0; // 5 метров назад
+
+                        // Retreat: target двигается → обновляем каждый frame
+                        *command = MovementCommand::MoveToPosition {
+                            target: retreat_position,
+                        };
+                    } else {
+                        if !matches!(*command, MovementCommand::Idle) {
+                            *command = MovementCommand::Idle;
+                        }
+                    }
+                } else {
+                    if !matches!(*command, MovementCommand::Idle) {
+                        *command = MovementCommand::Idle;
+                    }
+                }
             }
         }
     }
@@ -255,121 +381,88 @@ pub fn ai_movement_from_state(
 
 /// Система: AI attack execution
 ///
-/// Генерирует AttackStarted события когда AI в Attack state и cooldown готов.
+/// Генерирует атаки когда в Combat state и target в радиусе.
 pub fn ai_attack_execution(
-    mut ai_query: Query<(Entity, &Transform, &AIState, &mut Attacker, &Stamina)>,
-    mut attack_events: EventWriter<AttackStarted>,
+    mut ai_query: Query<(&AIState, &Transform, &mut Attacker, &Stamina)>,
+    targets_query: Query<&Transform>,
+    time: Res<Time<Fixed>>,
 ) {
-    for (entity, transform, state, mut attacker, stamina) in ai_query.iter_mut() {
-        if let AIState::Attack { target: _ } = state {
-            // Проверяем cooldown и stamina
-            if attacker.can_attack() && stamina.can_afford(ATTACK_COST) {
-                // Генерируем AttackStarted событие
-                attack_events.write(AttackStarted {
-                    attacker: entity,
-                    damage: attacker.base_damage,
-                    radius: attacker.attack_radius,
-                    offset: transform.forward() * 1.0, // 1m вперед
-                });
+    let delta = time.delta_secs();
 
-                // Запускаем cooldown
-                attacker.start_attack();
-
-                // Debug
-                // eprintln!("DEBUG: AI entity {:?} started attack", entity);
-            }
-        }
-    }
-}
-
-/// Helper: найти ближайшего врага (другой фракции) в радиусе
-fn find_nearest_enemy(
-    self_entity: Entity,
-    self_faction: u64,
-    self_transform: &Transform,
-    targets: &Query<(Entity, &Actor, &Transform, &Health)>,
-    max_range: f32,
-) -> Option<Entity> {
-    let mut nearest: Option<(Entity, f32)> = None;
-
-    for (target_entity, target_actor, target_transform, target_health) in targets.iter() {
-        // Не атакуем себя
-        if target_entity == self_entity {
-            continue;
+    for (state, transform, mut attacker, stamina) in ai_query.iter_mut() {
+        // Обновляем cooldown
+        if attacker.cooldown_timer > 0.0 {
+            attacker.cooldown_timer -= delta;
         }
 
-        // Только враги (другая фракция)
-        if target_actor.faction_id == self_faction {
-            continue;
-        }
+        // Атакуем только в Combat state
+        if let AIState::Combat { target } = state {
+            if let Ok(target_transform) = targets_query.get(*target) {
+                let distance = transform.translation.distance(target_transform.translation);
 
-        // Только живые targets
-        if !target_health.is_alive() {
-            continue;
-        }
+                // Проверяем: в радиусе, cooldown готов, есть stamina
+                const ATTACK_COST: f32 = 20.0;
+                if distance <= attacker.attack_radius
+                    && attacker.cooldown_timer <= 0.0
+                    && stamina.current >= ATTACK_COST
+                {
+                    // Атака происходит через старую систему (combat systems обрабатывают)
+                    // Просто сбрасываем cooldown
+                    attacker.cooldown_timer = attacker.attack_cooldown;
 
-        let distance = self_transform.translation.distance(target_transform.translation);
-
-        if distance <= max_range {
-            if let Some((_, best_distance)) = nearest {
-                if distance < best_distance {
-                    nearest = Some((target_entity, distance));
+                    crate::log(&format!("AI: attacking target {:?}", target));
                 }
-            } else {
-                nearest = Some((target_entity, distance));
             }
         }
     }
-
-    nearest.map(|(entity, _)| entity)
 }
 
-/// Helper: проверить что target еще валиден (жив)
-fn is_valid_target(
-    target: Entity,
-    targets: &Query<(Entity, &Actor, &Transform, &Health)>,
-) -> bool {
-    if let Ok((_, _, _, health)) = targets.get(target) {
-        health.is_alive()
-    } else {
-        false
-    }
-}
-
-/// Система: простая collision resolution для NPC
+/// Система: collision resolution (отталкивание NPC друг от друга)
 ///
-/// Отталкивает NPC друг от друга если они слишком близко (< 0.8m).
-/// Работает как замена физическим коллайдерам в headless режиме.
+/// Предотвращает стэкинг actors на одной точке.
 pub fn simple_collision_resolution(
-    mut query: Query<(Entity, &mut Transform, &Actor), With<AIState>>,
+    mut actors: Query<(&mut Transform, Entity), With<Actor>>,
 ) {
-    const COLLISION_RADIUS: f32 = 0.8; // Минимальная дистанция
-    const PUSH_STRENGTH: f32 = 0.1;     // Сила отталкивания
-
-    let entities_positions: Vec<(Entity, Vec3)> = query.iter()
-        .map(|(e, t, _)| (e, t.translation))
+    let positions: Vec<(Entity, Vec3)> = actors
+        .iter()
+        .map(|(t, e)| (e, t.translation))
         .collect();
 
-    for (entity, mut transform, _) in query.iter_mut() {
+    for (mut transform, entity) in actors.iter_mut() {
         let mut push = Vec3::ZERO;
 
-        for (other_entity, other_pos) in &entities_positions {
-            if *other_entity == entity {
+        for &(other_entity, other_pos) in &positions {
+            if other_entity == entity {
                 continue;
             }
 
-            let to_other = *other_pos - transform.translation;
-            let distance = to_other.length();
+            let diff = transform.translation - other_pos;
+            let distance = diff.length();
 
-            if distance < COLLISION_RADIUS && distance > 0.01 {
-                // Отталкиваемся от other
-                let push_dir = -to_other.normalize();
-                let push_amount = (COLLISION_RADIUS - distance) * PUSH_STRENGTH;
-                push += push_dir * push_amount;
+            // Минимальная дистанция между actors
+            const MIN_DISTANCE: f32 = 1.0;
+
+            if distance < MIN_DISTANCE && distance > 0.001 {
+                let push_force = (MIN_DISTANCE - distance) / MIN_DISTANCE;
+                push += diff.normalize() * push_force * 0.1;
             }
         }
 
         transform.translation += push;
+    }
+}
+
+/// System: обработка смерти → переключение AI в Dead state
+///
+/// При HP == 0 отключаем AI (Dead state) чтобы мертвые не стреляли/двигались
+pub fn handle_actor_death(
+    mut actors: Query<(&crate::Health, &mut AIState), Changed<crate::Health>>,
+) {
+    for (health, mut state) in actors.iter_mut() {
+        if health.current == 0 && !matches!(*state, AIState::Dead) {
+            *state = AIState::Dead;
+            crate::log("Actor died → AI disabled (Dead state)");
+        }
     }
 }
 
@@ -386,8 +479,10 @@ mod tests {
     #[test]
     fn test_ai_config_default() {
         let config = AIConfig::default();
-        assert_eq!(config.detection_range, 10.0);
         assert_eq!(config.retreat_stamina_threshold, 0.3);
+        assert_eq!(config.retreat_health_threshold, 0.2);
+        assert_eq!(config.retreat_duration, 2.0);
+        assert_eq!(config.patrol_direction_change_interval, 3.0);
     }
 
     #[test]

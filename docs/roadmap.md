@@ -93,32 +93,141 @@
 
 ---
 
-## 🚧 Фаза 1.5: Presentation Layer Abstraction (СЛЕДУЮЩЕЕ)
+## 🚧 Фаза 1.5: Combat Mechanics + Player Control (ТЕКУЩЕЕ)
 
-**Срок:** 3-5 дней
-**Статус:** 🎯 Next priority (начать завтра)
-**Обновлено:** 2025-01-09
+**Срок:** 5-8 дней
+**Статус:** 🎯 In progress
+**Обновлено:** 2025-01-10
 
 ### Milestone цель:
-**Simulation полностью independent от Godot через PresentationClient trait**
+**Playable prototype: игрок дерётся с NPC (ближний + дальний бой)**
 
 ### Зачем:
-- Чистая архитектура: "ассеты на Godot, крутим-вертим на Rust"
-- Headless testing без Godot dependencies
-- Моддинг: custom рендеры от community
-- Гибкость: Bevy/web renderer в будущем
+- 🎮 Сделать игру играбельной (сейчас только NPC vs NPC)
+- 🎮 Проверить combat feel (timing, weight, impact)
+- 🎮 Foundation для inventory/loot систем
+- 🎮 Fun factor > 0 перед переходом к экономике
+
+### Архитектурные решения (2025-01-10):
+- ✅ **ADR-002:** Godot-Rust Integration (SimulationBridge без abstraction, YAGNI)
+- ✅ **ADR-003:** Hybrid Architecture (ECS strategic + Godot tactical physics)
+- ✅ **ADR-004:** Command/Event Architecture (Bevy Events, Changed<T> sync)
+- ✅ **ADR-005:** Transform Ownership (Godot Transform + ECS StrategicPosition)
+- ✅ **ADR-006:** Chunk-based Streaming World (procgen, seed + deltas saves)
+- ✅ **Assets:** Godot prefabs + Rust load через `load::<T>("res://")`
 
 ### Задачи:
-- [ ] `presentation` module: PresentationClient trait + PresentationEvent enum
-- [ ] Event system: simulation → event queue → client
-- [ ] GodotPresentationClient (refactor SimulationBridge)
-- [ ] HeadlessPresentationClient (no-op для tests)
-- [ ] Update tests: HeadlessClient вместо direct ECS
 
-### Deliverables:
-- `voidrun_simulation/src/presentation/` — trait + events
-- `voidrun_godot/src/godot_client.rs` — Godot impl
-- Simulation без godot dependency ✅
+**Player Control (1-2 дня):**
+- [ ] WASD movement через Godot Input events
+- [ ] Mouse attack (LMB → swing weapon)
+- [ ] Camera follow player (3rd person, smooth)
+- [ ] Health/Stamina HUD (bars на screen space)
+
+**Melee Combat Polish (1 день):**
+- [ ] Parry window (200ms timing, perfect block = no damage)
+- [ ] Block action (hold RMB, stamina drain 5/sec)
+- [ ] Dodge roll (spacebar, i-frames 300ms, stamina cost 20)
+
+**Ranged Combat System (2-3 дня):**
+- [ ] Projectile physics (RigidBody3D с gravity)
+- [ ] Bow/crossbow weapon type
+- [ ] Ballistics (arc trajectory, deterministic)
+- [ ] Ammo system (simple counter, pickup later)
+- [ ] Ranged damage system (hit detection)
+
+**AI Upgrade (1-2 дня):**
+- [ ] Pathfinding (A* через Godot NavigationAgent3D)
+- [ ] Ranged AI behavior (keep distance 5-10m, shoot)
+- [ ] Dodge projectiles (simple raycast prediction)
+
+### Фаза 1.5.5: Chunk System & Procgen Foundation (ДОБАВЛЕНО 2025-01-10)
+
+**Срок:** 6-10 дней (параллельно с Combat Mechanics или после)
+**Статус:** 📋 Planned
+
+**Зачем:**
+- 🌍 Процедурная генерация (нет ресурсов на ручные уровни)
+- 🌍 Infinite world (Minecraft-style streaming chunks)
+- 🌍 Компактные saves (seed + deltas, не full snapshot)
+- 🌍 MMO-ready architecture
+
+**Задачи (см. ADR-006 план имплементации):**
+
+**Фаза 1: Chunk System Core (2-3 дня):**
+- [ ] ChunkCoord (IVec2), ChunkData, LoadedChunks types
+- [ ] `update_chunk_loading` система (load radius вокруг игрока)
+- [ ] Простейшая procgen (один биом, детерминированный RNG)
+- [ ] ChunkEvent::Load/Unload
+
+**Фаза 2: Godot Integration (1-2 дня):**
+- [ ] `process_chunk_events` (geometry loading/unloading)
+- [ ] `spawn_entities_in_loaded_chunks` (NPC spawn на NavMesh)
+- [ ] Chunk prefabs (corridor, warehouse scenes)
+
+**Фаза 3: Procgen Content (2-3 дня):**
+- [ ] Биомы (5-7 типов комнат: corridor, warehouse, reactor, medbay)
+- [ ] Perlin noise для biome distribution
+- [ ] Детерминированная генерация врагов/лута (RNG per chunk seed)
+
+**Фаза 4: Save/Load (1-2 дня):**
+- [ ] SaveFile (seed + player + chunk deltas)
+- [ ] `calculate_chunk_delta` (diff от procgen baseline)
+- [ ] Load с delta application
+
+**Deliverables:**
+- ✅ `docs/decisions/ADR-006` — Chunk-based Streaming World design
+- `voidrun_simulation/src/world/chunk.rs` — chunk management
+- `voidrun_simulation/src/world/procgen.rs` — procedural generation
+- `voidrun_simulation/src/save/mod.rs` — seed + delta saves
+- `voidrun_godot/src/world/chunk_loader.rs` — geometry loading
+
+---
+
+### Deliverables (общие для Фазы 1.5):
+
+**Architecture:**
+- ✅ `docs/decisions/ADR-002` — Godot-Rust Integration Pattern
+- ✅ `docs/decisions/ADR-003` — ECS vs Godot Physics Ownership
+- ✅ `docs/decisions/ADR-004` — Command/Event Architecture (Bevy Events)
+- ✅ `docs/decisions/ADR-005` — Transform Ownership & Strategic Positioning
+- ✅ `docs/decisions/ADR-006` — Chunk-based Streaming World (Procgen)
+- `voidrun_simulation/src/events.rs` — GodotInputEvent enum
+- `voidrun_simulation/src/components.rs` — StrategicPosition component
+
+**Gameplay:**
+- `voidrun_simulation/src/player/` — player control systems (ECS)
+- `voidrun_simulation/src/combat/projectile.rs` — projectile rules (data)
+- `voidrun_godot/src/player_input.rs` — input handling (Godot)
+- `voidrun_godot/src/combat_execution.rs` — animation-driven combat
+- `godot/assets/prefabs/` — character/weapon prefabs
+- Playable demo: 1 player vs 2-3 NPC (mix melee/ranged)
+
+### Checkpoint:
+- ✅ Combat чувствуется (не "флэтовый")
+- ✅ Dodge/parry timing работает (skill-based)
+- ✅ AI не тупит (pathfinding без застреваний)
+- ✅ Можно играть 5 минут без скуки
+
+---
+
+## 📋 Фаза 1.5.5: Presentation Layer Abstraction (POSTPONED - YAGNI)
+
+**Статус:** ⏸️ Отложено (не нужно сейчас)
+**Решение:** 2025-01-10
+
+### Почему отложено:
+- **YAGNI:** PresentationClient trait решает проблему которой нет
+- **Godot работает:** SimulationBridge hybrid pattern — правильная архитектура
+- **Фокус на геймплей:** 5-8 дней лучше потратить на player control + combat
+- **Риск <5%:** смена рендера до 2026 = маловероятна
+
+### Когда вернуться:
+- Если появится реальная нужда в моддинг API
+- Если захочется web/mobile render
+- После Vertical Slice (когда есть что показать)
+
+**Подробности:** См. ADR-002 (Godot-Rust Integration Pattern)
 
 ---
 
@@ -172,6 +281,28 @@
 - [ ] Client connects via UDP
 
 ### Риски отложены до Фазы 3
+
+---
+
+## 📋 Фаза 2.5: Inventory + Loot (NEW)
+
+**Срок:** 1 неделя
+**Статус:** 🔜 После Combat Mechanics
+
+### Milestone цель:
+**Reward loop: kill NPC → loot items → equip better gear**
+
+### Задачи:
+- [ ] Inventory system (grid-based, capacity limit)
+- [ ] Item definitions (weapons, armor, consumables)
+- [ ] Loot drops (NPC death → spawn items)
+- [ ] Equipment system (equip weapon/armor)
+- [ ] Simple UI (inventory panel, drag-drop)
+
+### Checkpoint:
+- ✅ Можно подобрать items
+- ✅ Equip влияет на stats (damage, defense)
+- ✅ Reward loop работает (motivation играть)
 
 ---
 

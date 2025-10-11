@@ -1,13 +1,16 @@
-//! Damage calculation система
+//! Damage calculation система (Godot-driven combat)
 //!
-//! Обрабатывает HitboxOverlap события и применяет урон с модификаторами:
-//! - Stamina multiplier: damage × sqrt(stamina_percent)
-//! - Armor (в будущем)
-//! - Critical hits (в будущем)
+//! ECS ответственность:
+//! - Damage calculation с модификаторами (stamina multiplier)
+//! - Health application
+//! - Death detection
+//!
+//! Godot отправляет: GodotCombatEvent::WeaponHit → apply_damage
+//! ECS отправляет: DamageDealt, EntityDied events
 
 use bevy::prelude::*;
 use crate::components::{Health, Stamina};
-use crate::combat::hitbox::HitboxOverlap;
+use crate::combat::Attacker;
 
 /// Событие: урон нанесен
 ///
@@ -35,64 +38,29 @@ pub struct EntityDied {
 #[derive(Component, Debug)]
 pub struct Dead;
 
-/// Система: apply damage от HitboxOverlap событий
+/// Система: apply damage (placeholder для Godot-driven combat)
 ///
-/// 1. Читаем HitboxOverlap события
-/// 2. Вычисляем final damage с модификаторами (stamina)
-/// 3. Применяем damage к Health
-/// 4. Генерируем DamageDealt и EntityDied события
+/// TODO: Будет читать GodotCombatEvent::WeaponHit когда Godot integration готов
+/// Сейчас: stub system для компиляции
 pub fn apply_damage(
-    mut overlap_events: EventReader<HitboxOverlap>,
-    mut damage_dealt_events: EventWriter<DamageDealt>,
-    mut entity_died_events: EventWriter<EntityDied>,
-    mut targets: Query<(&mut Health, Option<&Stamina>)>,
-    attackers: Query<&Stamina>, // Stamina attacker для модификатора
+    mut _damage_dealt_events: EventWriter<DamageDealt>,
+    mut _entity_died_events: EventWriter<EntityDied>,
+    mut _targets: Query<(&mut Health, Option<&Stamina>)>,
+    _attackers: Query<(&Attacker, &Stamina)>,
 ) {
-    for overlap in overlap_events.read() {
-        // Получаем target health
-        let (mut target_health, target_stamina) = match targets.get_mut(overlap.target) {
-            Ok(t) => t,
-            Err(_) => {
-                crate::log(&format!("WARN: HitboxOverlap: target {:?} has no Health component", overlap.target));
-                continue;
-            }
-        };
+    // TODO: Читать GodotCombatEvent::WeaponHit events
+    // Godot AnimationTree trigger hitbox → WeaponHit { attacker, target } → apply_damage
+    //
+    // for event in godot_combat_events.read() {
+    //     match event {
+    //         GodotCombatEvent::WeaponHit { attacker, target } => {
+    //             apply_weapon_hit(*attacker, *target, &mut targets, &attackers, ...);
+    //         }
+    //     }
+    // }
 
-        // Вычисляем final damage с stamina multiplier attacker
-        let attacker_stamina = attackers.get(overlap.attacker).ok();
-        let final_damage = calculate_damage(
-            overlap.damage,
-            attacker_stamina,
-            target_stamina,
-        );
-
-        // Применяем damage
-        let was_alive = target_health.is_alive();
-        target_health.take_damage(final_damage);
-        let is_alive = target_health.is_alive();
-
-        // Debug logging
-        // eprintln!("DEBUG: Damage applied: {:?} → {:?} ({} damage, health: {})",
-        //     overlap.attacker, overlap.target, final_damage, target_health.current);
-
-        // Событие: урон нанесен
-        damage_dealt_events.write(DamageDealt {
-            attacker: overlap.attacker,
-            target: overlap.target,
-            damage: final_damage,
-            target_died: was_alive && !is_alive,
-        });
-
-        // Событие: entity умер
-        if was_alive && !is_alive {
-            entity_died_events.write(EntityDied {
-                entity: overlap.target,
-                killer: Some(overlap.attacker),
-            });
-
-            crate::log(&format!("INFO: Entity {:?} killed by {:?}", overlap.target, overlap.attacker));
-        }
-    }
+    // Stub для компиляции
+    // Реальная логика будет после Godot integration
 }
 
 /// Вычисляет final damage с модификаторами
@@ -126,31 +94,20 @@ pub fn calculate_damage(
 
 /// Система: отключение AI при смерти
 ///
-/// Убирает AIState и MovementInput компоненты у мертвых entities,
-/// чтобы они перестали двигаться и атаковать.
+/// Убирает AIState и MovementCommand компоненты у мертвых entities.
 /// Добавляет маркер Dead для визуальных эффектов.
 pub fn disable_ai_on_death(
     mut commands: Commands,
     mut death_events: EventReader<EntityDied>,
-    mut physics_query: Query<(&mut crate::components::PhysicsBody, Option<&mut crate::physics::MovementInput>)>,
 ) {
     for event in death_events.read() {
-        // Обнуляем velocity и MovementInput сразу (не через Commands)
-        if let Ok((mut physics, movement_input)) = physics_query.get_mut(event.entity) {
-            physics.velocity = bevy::math::Vec3::ZERO;
-
-            if let Some(mut input) = movement_input {
-                input.direction = bevy::math::Vec3::ZERO;
-            }
-        }
-
-        // Удаляем AI компоненты через Commands (задержка на 1 фрейм)
+        // Удаляем AI компоненты через Commands
         if let Ok(mut entity_commands) = commands.get_entity(event.entity) {
             entity_commands.remove::<crate::ai::AIState>();
-            entity_commands.remove::<crate::physics::MovementInput>();
+            entity_commands.remove::<crate::components::MovementCommand>();
             entity_commands.insert(Dead);
 
-            eprintln!("INFO: Disabled AI for dead entity {:?}", event.entity);
+            crate::log(&format!("INFO: Disabled AI for dead entity {:?}", event.entity));
         }
     }
 }

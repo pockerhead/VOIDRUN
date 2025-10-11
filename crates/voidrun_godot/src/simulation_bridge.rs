@@ -1,16 +1,20 @@
 use godot::prelude::*;
 use godot::classes::{
-    Node3D, INode3D, MeshInstance3D, CapsuleMesh, PlaneMesh, SphereMesh,
-    StandardMaterial3D, DirectionalLight3D, Label3D,
+    Node3D, INode3D, MeshInstance3D, PlaneMesh, SphereMesh,
+    StandardMaterial3D, DirectionalLight3D,
     Node, Mesh, Material, CpuParticles3D,
+    NavigationRegion3D, NavigationMesh,
+    NavigationServer3D, NavigationMeshSourceGeometryData3D,
     light_3d::Param as LightParam,
-    base_material_3d::{BillboardMode, ShadingMode as BaseMaterial3DShading, Flags as BaseMaterial3DFlags},
+    base_material_3d::{ShadingMode as BaseMaterial3DShading, Flags as BaseMaterial3DFlags},
     cpu_particles_3d::{EmissionShape, Parameter as CpuParam},
 };
 use voidrun_simulation::*;
+use voidrun_simulation::combat::Weapon;
 use crate::camera::rts_camera::RTSCamera3D;
-use voidrun_simulation::ai::AIState;
-use voidrun_simulation::combat::{Weapon, WeaponState};
+use crate::systems::{VisualRegistry, AttachmentRegistry, SceneRoot, VisionTracking};
+use voidrun_simulation::ai::{AIState, SpottedEnemies};
+use bevy::ecs::schedule::IntoScheduleConfigs;
 
 /// Мост между Godot и Rust ECS симуляцией (100% Rust, no GDScript)
 ///
@@ -22,26 +26,8 @@ use voidrun_simulation::combat::{Weapon, WeaponState};
 pub struct SimulationBridge {
     base: Base<Node3D>,
 
-    /// Bevy ECS App (симуляция)
+    /// Bevy ECS App (симуляция + NonSend visual registries)
     simulation: Option<bevy::app::App>,
-
-    /// Визуальные представления NPC [NPC1, NPC2]
-    npc_visuals: Vec<Gd<MeshInstance3D>>,
-
-    /// Health bar labels над NPC
-    health_labels: Vec<Gd<Label3D>>,
-
-    /// Stamina bar labels под health bar
-    stamina_labels: Vec<Gd<Label3D>>,
-
-    /// AI state labels над health bar
-    ai_state_labels: Vec<Gd<Label3D>>,
-
-    /// Weapon meshes для каждого NPC
-    weapon_meshes: Vec<Gd<MeshInstance3D>>,
-
-    /// Entity indices для синхронизации
-    entity_indices: Vec<u32>,
 }
 
 #[godot_api]
@@ -50,20 +36,16 @@ impl INode3D for SimulationBridge {
         Self {
             base,
             simulation: None,
-            npc_visuals: Vec::new(),
-            health_labels: Vec::new(),
-            stamina_labels: Vec::new(),
-            ai_state_labels: Vec::new(),
-            weapon_meshes: Vec::new(),
-            entity_indices: Vec::new(),
         }
     }
 
     fn ready(&mut self) {
-        godot_print!("SimulationBridge ready - building 3D scene in Rust");
+        GodotLogger::clear_log_file();
+        voidrun_simulation::set_logger(Box::new(GodotLogger));
+        voidrun_simulation::log("SimulationBridge ready - building 3D scene in Rust");
 
-        // 1. Создаём ground plane
-        self.create_ground();
+        // 1. Создаём navigation region + ground
+        self.create_navigation_region();
 
         // 2. Создаём lights
         self.create_lights();
@@ -73,35 +55,83 @@ impl INode3D for SimulationBridge {
 
         // 4. Инициализируем ECS симуляцию
         let mut app = create_headless_app(42);
-        voidrun_simulation::set_logger(Box::new(GodotLogger));
         app.add_plugins(SimulationPlugin);
+
+        // 4.1 Регистрируем NonSend resources (main thread only)
+        app.insert_non_send_resource(VisualRegistry::default());
+        app.insert_non_send_resource(AttachmentRegistry::default());
+        app.insert_non_send_resource(VisionTracking::default());
+        app.insert_non_send_resource(SceneRoot {
+            node: self.base().clone().upcast::<Node3D>(),
+        });
+
+        // 4.2 Инициализируем static queues для Godot → ECS events
+        crate::projectile::init_projectile_hit_queue();
+
+        // 4.3 Регистрируем visual sync systems (_main_thread = Godot API)
+        use crate::systems::{
+            spawn_actor_visuals_main_thread,
+            sync_health_labels_main_thread,
+            sync_stamina_labels_main_thread,
+            sync_ai_state_labels_main_thread,
+            sync_transforms_main_thread,
+            attach_prefabs_main_thread,
+            detach_prefabs_main_thread,
+            poll_vision_cones_main_thread,
+            weapon_aim_main_thread,
+            weapon_fire_main_thread,
+            process_godot_projectile_hits,
+            process_movement_commands_main_thread,
+            apply_navigation_velocity_main_thread,
+        };
+
+
+        // 3. Sync (Changed<T> → обновление визуалов) + Vision polling + Weapon systems + Movement
+        app.add_systems(
+            bevy::prelude::Update,
+            (
+                spawn_actor_visuals_main_thread,
+                attach_prefabs_main_thread,
+                detach_prefabs_main_thread,
+                poll_vision_cones_main_thread,    // VisionCone → GodotAIEvent
+                process_movement_commands_main_thread, // MovementCommand → NavigationAgent3D
+                apply_navigation_velocity_main_thread, // NavigationAgent → CharacterBody velocity
+                weapon_aim_main_thread,           // Aim RightHand at target
+                weapon_fire_main_thread,          // WeaponFired → spawn GodotProjectile
+                                                  // Projectile physics → GodotProjectile::_physics_process
+                process_godot_projectile_hits,    // Godot queue → ECS ProjectileHit events
+                sync_health_labels_main_thread,
+                sync_stamina_labels_main_thread,
+                sync_ai_state_labels_main_thread,
+                sync_transforms_main_thread,
+            ).chain(),
+        );
 
         // 5. Спавним 2 NPC в симуляции (с разными характеристиками для асимметрии)
         let world = app.world_mut();
-        let npc1 = spawn_test_npc(world, (-3.0, 0.5, 0.0), 1, 100, 25); // Faction 1: 100 HP, 25 damage
-        let npc2 = spawn_test_npc(world, (3.0, 0.5, 0.0), 2, 80, 30);   // Faction 2: 80 HP, 30 damage (больше урона, меньше HP)
+        spawn_test_npc(world, (-3.0, 0.5, 0.0), 1, 100, 1); // Faction 1: 100 HP, 25 damage
+        // spawn_test_npc(world, (3.0, 0.5, 0.0), 2, 80, 2);   // Faction 2: 80 HP, 30 damage (больше урона, меньше HP)
 
-        self.entity_indices.push(npc1.index());
-        self.entity_indices.push(npc2.index());
-
-        // 6. Создаём визуалы для NPC
-        self.create_npc_visual(0, Color::from_rgb(0.8, 0.2, 0.2)); // Red
-        self.create_npc_visual(1, Color::from_rgb(0.2, 0.2, 0.8)); // Blue
+        // Визуалы будут созданы автоматически через spawn_actor_visuals_main_thread систему (Added<Actor>)
 
         self.simulation = Some(app);
 
-        godot_print!("Scene ready: 2 NPCs spawned with full Rust visuals");
+        voidrun_simulation::log("Scene ready: 2 NPCs spawned (visuals через ECS systems)");
     }
 
-    fn process(&mut self, _delta: f64) {
+    fn process(&mut self, delta: f64) {
         // Обновляем симуляцию
         if let Some(app) = &mut self.simulation {
-            app.update();
+            // Передаём delta time в Bevy (для movement system)
+            app.world_mut().insert_resource(crate::systems::GodotDeltaTime(delta as f32));
+            app.update(); // ECS systems выполнятся, включая attach/detach_prefabs_main_thread
+        }
 
-            // Debug: показываем AI states (раз в секунду)
+        // Debug: показываем AI states (раз в секунду)
+        if let Some(app) = &mut self.simulation {
             static mut DEBUG_TIMER: f32 = 0.0;
             unsafe {
-                DEBUG_TIMER += _delta as f32;
+                DEBUG_TIMER += delta as f32;
                 if DEBUG_TIMER >= 1.0 {
                     DEBUG_TIMER = 0.0;
 
@@ -109,8 +139,8 @@ impl INode3D for SimulationBridge {
                     let mut query = world.query::<(bevy::prelude::Entity, &AIState, &Actor, &Health, &Stamina)>();
 
                     for (entity, state, actor, health, stamina) in query.iter(world) {
-                        godot_print!("DEBUG: Entity {:?} (faction {}) HP:{}/{} Stamina:{:.0}/{:.0} state = {:?}",
-                            entity, actor.faction_id, health.current, health.max, stamina.current, stamina.max, state);
+                        voidrun_simulation::log(&format!("DEBUG: Entity {:?} (faction {}) HP:{}/{} Stamina:{:.0}/{:.0} state = {:?}",
+                            entity, actor.faction_id, health.current, health.max, stamina.current, stamina.max, state));
                     }
                 }
             }
@@ -119,29 +149,96 @@ impl INode3D for SimulationBridge {
         // Обрабатываем hit effects (DamageDealt события)
         self.process_hit_effects();
 
-        // Синхронизируем визуалы
-        self.sync_visuals();
+        // Visual sync теперь через ECS systems (_main_thread)
+        // sync_health_labels_main_thread, sync_stamina_labels_main_thread, etc.
     }
 }
 
 #[godot_api]
 impl SimulationBridge {
-    /// Создать ground plane (20x20m зелёный)
-    fn create_ground(&mut self) {
-        let mut mesh_instance = MeshInstance3D::new_alloc();
+    /// Создать NavigationRegion3D + NavMesh через NavigationServer3D API (процедурная генерация)
+    ///
+    /// АРХИТЕКТУРА (для процгена):
+    /// - NavigationMeshSourceGeometryData3D: процедурная геометрия (vertices/faces)
+    /// - NavigationServer3D::bake_from_source_geometry_data(): runtime baking
+    /// - NavigationRegion3D::set_navigation_mesh(): установка результата
+    ///
+    /// ПОЧЕМУ НЕ bake_navigation_mesh():
+    /// - Требует StaticBody3D/CSG nodes в SceneTree (не работает для динамической геометрии)
+    /// - Для процгена нужен прямой контроль над геометрией
+    fn create_navigation_region(&mut self) {
+        use godot::builtin::Aabb;
 
-        // Plane mesh
+        // 1. Создать NavigationMesh с параметрами
+        let mut nav_mesh = NavigationMesh::new_gd();
+        nav_mesh.set_cell_size(0.25);
+        nav_mesh.set_cell_height(0.25); // Синхронизируем с ProjectSettings
+        nav_mesh.set_agent_height(1.8);
+        nav_mesh.set_agent_radius(0.5);
+        nav_mesh.set_agent_max_climb(0.5);
+
+        // КРИТИЧНО: AABB для baking — ограничиваем область (400x400м, высота 2м)
+        nav_mesh.set_filter_baking_aabb(Aabb {
+            position: Vector3::new(-200.0, -1.0, -200.0),
+            size: Vector3::new(400.0, 2.0, 400.0),
+        });
+
+        // 2. Создать source geometry data
+        let mut source_geometry = NavigationMeshSourceGeometryData3D::new_gd();
+
+        // 3. Генерация треугольников для плоскости 400x400м
+        // Простой quad из 2 треугольников — тестируем базовый случай
+        let mut vertices = PackedVector3Array::new();
+
+        // Triangle 1 (clockwise from top):
+        vertices.push(Vector3::new(-200.0, 0.0, -200.0)); // top-left
+        vertices.push(Vector3::new(200.0, 0.0, -200.0));  // top-right
+        vertices.push(Vector3::new(200.0, 0.0, 200.0));   // bottom-right
+
+        // Triangle 2:
+        vertices.push(Vector3::new(-200.0, 0.0, -200.0)); // top-left
+        vertices.push(Vector3::new(200.0, 0.0, 200.0));   // bottom-right
+        vertices.push(Vector3::new(-200.0, 0.0, 200.0));  // bottom-left
+
+        voidrun_simulation::log(&format!("📐 Generated {} vertices for NavMesh", vertices.len()));
+        source_geometry.add_faces(&vertices, Transform3D::IDENTITY);
+
+        // 4. Bake NavMesh из процедурной геометрии (синхронно)
+        voidrun_simulation::log("🔧 Baking NavMesh from procedural geometry (NavigationServer3D)...");
+
+        let mut nav_server = NavigationServer3D::singleton();
+        nav_server.bake_from_source_geometry_data(&nav_mesh, &source_geometry);
+
+        // Debug: проверяем результат
+        let vertex_count = nav_mesh.get_vertices().len();
+        let polygon_count = nav_mesh.get_polygon_count();
+        voidrun_simulation::log(&format!("✅ NavMesh baked: {} vertices, {} polygons", vertex_count, polygon_count));
+
+        if polygon_count == 0 {
+            voidrun_simulation::log("❌ ERROR: NavMesh has 0 polygons! Check geometry/parameters");
+        }
+
+        // 5. Создать NavigationRegion3D и установить NavMesh
+        let mut nav_region = NavigationRegion3D::new_alloc();
+        nav_region.set_navigation_mesh(&nav_mesh);
+        nav_region.set_name("NavigationRegion3D");
+
+        self.base_mut().add_child(&nav_region.upcast::<Node>());
+
+        // 6. Создать visual mesh (ground plane)
+        let mut ground_mesh = MeshInstance3D::new_alloc();
         let mut plane = PlaneMesh::new_gd();
-        plane.set_size(Vector2::new(20.0, 20.0));
-        mesh_instance.set_mesh(&plane.upcast::<Mesh>());
+        plane.set_size(Vector2::new(400.0, 400.0));
+        ground_mesh.set_mesh(&plane.upcast::<Mesh>());
 
         // Зелёный материал
         let mut material = StandardMaterial3D::new_gd();
         material.set_albedo(Color::from_rgb(0.3, 0.5, 0.3));
-        mesh_instance.set_surface_override_material(0, &material.upcast::<Material>());
+        ground_mesh.set_surface_override_material(0, &material.upcast::<Material>());
 
-        // Добавляем в сцену
-        self.base_mut().add_child(&mesh_instance.upcast::<Node>());
+        self.base_mut().add_child(&ground_mesh.upcast::<Node>());
+
+        voidrun_simulation::log("✅ NavigationRegion3D ready (procedural NavMesh via NavigationServer3D)");
     }
 
     /// Создать lights (directional sun)
@@ -165,81 +262,11 @@ impl SimulationBridge {
 
         self.base_mut().add_child(&camera.upcast::<Node>());
 
-        godot_print!("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
+        voidrun_simulation::log("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
     }
 
-    /// Создать визуал NPC (capsule mesh + health/stamina/AI labels + weapon)
-    fn create_npc_visual(&mut self, _index: usize, color: Color) {
-        // Capsule mesh (тело актора)
-        let mut mesh_instance = MeshInstance3D::new_alloc();
-
-        let mut capsule = CapsuleMesh::new_gd();
-        capsule.set_radius(0.4);
-        capsule.set_height(1.8);
-        mesh_instance.set_mesh(&capsule.upcast::<Mesh>());
-
-        // Материал с цветом фракции
-        let mut material = StandardMaterial3D::new_gd();
-        material.set_albedo(color);
-        mesh_instance.set_surface_override_material(0, &material.upcast::<Material>());
-
-        // AI state label (над головой, выше health)
-        let mut ai_label = Label3D::new_alloc();
-        ai_label.set_text("[Idle]");
-        ai_label.set_pixel_size(0.004);
-        ai_label.set_billboard_mode(BillboardMode::ENABLED);
-        ai_label.set_position(Vector3::new(0.0, 1.4, 0.0));
-        ai_label.set_modulate(Color::from_rgb(0.8, 0.8, 0.2)); // Желтый
-        mesh_instance.add_child(&ai_label.clone().upcast::<Node>());
-
-        // Health label над головой
-        let mut health_label = Label3D::new_alloc();
-        health_label.set_text("HP: 100/100");
-        health_label.set_pixel_size(0.005);
-        health_label.set_billboard_mode(BillboardMode::ENABLED);
-        health_label.set_position(Vector3::new(0.0, 1.2, 0.0));
-        mesh_instance.add_child(&health_label.clone().upcast::<Node>());
-
-        // Stamina label под health
-        let mut stamina_label = Label3D::new_alloc();
-        stamina_label.set_text("Stamina: 100/100");
-        stamina_label.set_pixel_size(0.004);
-        stamina_label.set_billboard_mode(BillboardMode::ENABLED);
-        stamina_label.set_position(Vector3::new(0.0, 1.0, 0.0));
-        stamina_label.set_modulate(Color::from_rgb(0.2, 0.8, 0.2)); // Зелёный
-        mesh_instance.add_child(&stamina_label.clone().upcast::<Node>());
-
-        // Weapon mesh (меч-капсула, child of actor)
-        let mut weapon_mesh = MeshInstance3D::new_alloc();
-        let mut weapon_capsule = CapsuleMesh::new_gd();
-        weapon_capsule.set_radius(0.08); // Тонкий меч
-        weapon_capsule.set_height(1.5); // Длина 1.5m (чтобы достать до врага на 2м)
-        weapon_mesh.set_mesh(&weapon_capsule.upcast::<Mesh>());
-
-        // Weapon материал (серебристый металл)
-        let mut weapon_material = StandardMaterial3D::new_gd();
-        weapon_material.set_albedo(Color::from_rgb(0.7, 0.7, 0.8));
-        weapon_material.set_metallic(0.9);
-        weapon_material.set_roughness(0.2);
-        weapon_mesh.set_surface_override_material(0, &weapon_material.upcast::<Material>());
-
-        // Weapon position: впереди актора (на уровне руки), сдвинут вперёд на половину длины
-        weapon_mesh.set_position(Vector3::new(0.3, 0.3, 1.0)); // Вправо 0.3, вверх 0.3 (рука), вперёд 1.0
-
-        // Weapon rotation: повернут по диагонали (45° вправо, 30° вниз)
-        weapon_mesh.set_rotation_degrees(Vector3::new(-30.0, 0.0, 45.0));
-
-        mesh_instance.add_child(&weapon_mesh.clone().upcast::<Node>());
-
-        // Добавляем в сцену
-        self.base_mut().add_child(&mesh_instance.clone().upcast::<Node>());
-
-        self.npc_visuals.push(mesh_instance);
-        self.health_labels.push(health_label);
-        self.stamina_labels.push(stamina_label);
-        self.ai_state_labels.push(ai_label);
-        self.weapon_meshes.push(weapon_mesh);
-    }
+    // ❌ REMOVED: create_npc_visual() — теперь используем spawn_actor_visuals_main_thread() ECS систему
+    // См. crates/voidrun_godot/src/systems/visual_sync.rs
 
     /// Синхронизировать визуалы с ECS state
     /// Обрабатывает DamageDealt события и спавнит визуальные эффекты ударов
@@ -259,7 +286,7 @@ impl SimulationBridge {
                 .collect();
 
             if !events.is_empty() {
-                godot_print!("DEBUG: Found {} damage events this frame", events.len());
+                voidrun_simulation::log(&format!("DEBUG: Found {} damage events this frame", events.len()));
             }
 
             // Собираем позиции для particles
@@ -275,14 +302,14 @@ impl SimulationBridge {
 
         // Теперь спавним particles (можем заимствовать self mutably)
         for pos in positions {
-            godot_print!("DEBUG: Spawning hit particles at {:?}", pos);
+            voidrun_simulation::log(&format!("DEBUG: Spawning hit particles at {:?}", pos));
             self.spawn_hit_particles(pos);
         }
     }
 
     /// Спавнит красные particles в точке удара
     fn spawn_hit_particles(&mut self, position: Vector3) {
-        godot_print!("DEBUG: Creating particles at position {:?}", position);
+        voidrun_simulation::log(&format!("DEBUG: Creating particles at position {:?}", position));
 
         let mut particles = CpuParticles3D::new_alloc();
 
@@ -326,68 +353,17 @@ impl SimulationBridge {
         // Добавляем в сцену
         self.base_mut().add_child(&particles.upcast::<Node>());
 
-        godot_print!("DEBUG: Particles spawned and added to scene");
+        voidrun_simulation::log("DEBUG: Particles spawned and added to scene");
 
         // Автоудаление через 1 секунду (после окончания эффекта)
         // TODO: добавить timer для автоочистки
     }
 
-    fn sync_visuals(&mut self) {
-        if let Some(app) = &mut self.simulation {
-            let world = app.world();
-
-            for (i, &entity_index) in self.entity_indices.iter().enumerate() {
-                let entity = bevy::prelude::Entity::from_raw(entity_index);
-
-                // Синхронизируем transform актора
-                if let Some(transform) = world.get::<bevy::prelude::Transform>(entity) {
-                    let pos = transform.translation;
-                    self.npc_visuals[i].set_position(Vector3::new(pos.x, pos.y, pos.z));
-                }
-
-                // Обновляем health label
-                if let Some(health) = world.get::<Health>(entity) {
-                    let text = format!("HP: {}/{}", health.current, health.max);
-                    self.health_labels[i].set_text(&text);
-                }
-
-                // Обновляем stamina label
-                if let Some(stamina) = world.get::<Stamina>(entity) {
-                    let text = format!("Stamina: {:.0}/{:.0}", stamina.current, stamina.max);
-                    self.stamina_labels[i].set_text(&text);
-                }
-
-                // Обновляем AI state label
-                if let Some(ai_state) = world.get::<AIState>(entity) {
-                    let text = format!("[{:?}]", ai_state);
-                    self.ai_state_labels[i].set_text(&text);
-                }
-
-                // Синхронизируем weapon rotation (swing animation)
-                if let Some(children) = world.get::<bevy::prelude::Children>(entity) {
-                    for &child in children.iter() {
-                        if let Some(weapon) = world.get::<Weapon>(child) {
-                            // Синхронизируем rotation weapon mesh с Rust weapon transform
-                            if let Some(weapon_transform) = world.get::<bevy::prelude::Transform>(child) {
-                                let rot = weapon_transform.rotation;
-                                let (x, y, z) = rot.to_euler(bevy::math::EulerRot::XYZ);
-                                self.weapon_meshes[i].set_rotation(Vector3::new(x, y, z));
-
-                                // DEBUG: показываем weapon state
-                                static mut LAST_STATE: Option<WeaponState> = None;
-                                unsafe {
-                                    if LAST_STATE != Some(weapon.state) {
-                                        godot_print!("Weapon {} state: {:?}", i, weapon.state);
-                                        LAST_STATE = Some(weapon.state);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // УДАЛЕНО: sync_visuals() — заменено на ECS systems:
+    // - sync_health_labels_main_thread
+    // - sync_stamina_labels_main_thread
+    // - sync_ai_state_labels_main_thread
+    // - sync_transforms_main_thread
 }
 
 /// Спавн тестового NPC в ECS world
@@ -405,16 +381,6 @@ fn spawn_test_npc(
     commands.spawn((
         Actor { faction_id },
         BevyTransform::from_translation(Vec3::new(position.0, position.1, position.2)),
-        PhysicsBody::default(),
-        KinematicController {
-            move_speed: 5.0,
-            gravity: -9.81,
-            grounded: false, // ground_detection система установит правильное значение
-        },
-        MovementInput {
-            direction: Vec3::ZERO,
-            jump: false,
-        },
         Health {
             current: max_hp,
             max: max_hp,
@@ -430,12 +396,20 @@ fn spawn_test_npc(
             base_damage: damage,
             attack_radius: 2.0,
         },
+        Weapon::default(), // Weapon system (pistol)
+        MovementCommand::Idle, // Godot будет читать и выполнять
         AIState::Idle,
         AIConfig {
-            detection_range: 10.0,
             retreat_stamina_threshold: 0.2,  // Retreat при stamina < 20%
             retreat_health_threshold: 0.0,   // Retreat при HP < 10% (было 20%)
             retreat_duration: 1.5,            // Быстрее возвращаются в бой
+            patrol_direction_change_interval: 3.0, // Каждые 3 сек новое направление
+        },
+        SpottedEnemies::default(), // Godot VisionCone → GodotAIEvent → обновляет список
+        Attachment {
+            prefab_path: "res://actors/test_pistol.tscn".to_string(),
+            attachment_point: "RightHand/WeaponAttachment".to_string(),
+            attachment_type: AttachmentType::Weapon,
         },
     )).id()
 }
@@ -444,6 +418,47 @@ struct GodotLogger;
 
 impl LogPrinter for GodotLogger {
     fn log(&self, message: &str) {
+        use std::io::Write;
+
+        // Пишем в Godot console (с timestamp для читаемости)
         godot_print!("{}", message);
+
+        // Пишем в файл logs/game.log (append mode)
+        // Godot запускается из godot/ директории, поэтому путь относительно project root
+        let log_path = std::path::Path::new("../logs/game.log");
+
+        // Создаём директорию если не существует
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+        {
+            Ok(mut file) => {
+                let _ = writeln!(file, "{}", message);
+            }
+            Err(e) => {
+                // Логируем ошибку только один раз (первый раз)
+                static mut ERROR_LOGGED: bool = false;
+                unsafe {
+                    if !ERROR_LOGGED {
+                        godot_error!("❌ Failed to open log file {:?}: {}", log_path, e);
+                        ERROR_LOGGED = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl GodotLogger {
+    fn clear_log_file() {
+        let log_path = std::path::Path::new("../logs/game.log");
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::remove_file(log_path);
+        }
     }
 }

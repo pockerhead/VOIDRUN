@@ -1,18 +1,83 @@
 # VOIDRUN: Physics & Combat Architecture Design Document
 
-## Дата создания: 2025-10-07
-## Последнее обновление: 2025-10-07 (аудит 2024-2025)
-## Версия: 2.0
-## Статус: Validated + Critical Risks Identified
+## ⚠️ АРХИТЕКТУРА ИЗМЕНЕНА: См. ADR-003
+
+**Дата решения:** 2025-01-10
+**Новый подход:** Hybrid Architecture (ECS strategic + Godot tactical)
 
 ---
 
-## 1. Фундаментальное решение: Разделение симуляции и визуализации
+## Дата создания: 2025-10-07
+## Последнее обновление: 2025-01-10 (HYBRID + Strategic Positioning)
+## Версия: 3.1
+## Статус: ~~ECS Authoritative~~ → **Hybrid (Godot-centric + StrategicPosition)**
 
-### Рекомендация
+---
 
-**Rust/Bevy ECS** — authoritative детерминистичная симуляция (геймплейная физика, hit detection, урон)
-**Godot Physics** — презентационный слой (рагдоллы, обломки, интерполяция, client-side prediction)
+## 0. Актуальная архитектура (2025-01-10)
+
+### ✅ Принятое решение: Hybrid (Strategic ECS + Tactical Godot)
+
+**См. полное обоснование:** [ADR-003: ECS vs Godot Physics Ownership](../decisions/ADR-003-ecs-vs-godot-physics-ownership.md)
+
+**Краткое резюме:**
+
+```
+┌─────────────────────────────────────┐
+│ Bevy ECS (Strategic Layer)          │
+│ - Authoritative game state          │
+│ - AI decisions, combat rules        │
+│ - World simulation (economy, etc)   │
+│ - Strategic position (zones)        │
+└─────────────────────────────────────┘
+           ↓ commands ↑ events
+┌─────────────────────────────────────┐
+│ Godot (Tactical Layer)              │
+│ - Authoritative transform           │
+│ - Physics (CharacterBody3D)         │
+│ - Combat execution (animations)     │
+│ - Pathfinding (NavigationAgent3D)   │
+└─────────────────────────────────────┘
+```
+
+**Ключевые изменения:**
+- ❌ Rapier больше НЕ используется для movement (опционален для queries)
+- ✅ Godot Physics authoritative для Transform (tactical layer)
+- ✅ ECS owns StrategicPosition (strategic layer) — ADR-005
+- ✅ Синхронизация редкая (commands + events, 0.1-1 Hz)
+- ✅ Chunk-based world для procgen — ADR-006
+
+**Почему:**
+- Single-player priority → детерминизм не критичен
+- Client-Server netcode (не P2P rollback) → не требует bit-perfect physics
+- Godot features (NavigationAgent3D, AnimationTree) → меньше кода
+- Фокус на systems (economy, AI, quests) → точная физика не критична
+- Procgen levels → NavMesh определяет spawn positions (не ECS)
+
+**Transform Ownership:**
+- **Godot Transform** (tactical) — authoritative для physics, rendering, pathfinding
+- **ECS StrategicPosition** (strategic) — authoritative для AI/quests/economy
+
+**См. также:**
+- [ADR-005: Transform Ownership & Strategic Positioning](../decisions/ADR-005-transform-ownership-strategic-positioning.md)
+- [ADR-006: Chunk-based Streaming World](../decisions/ADR-006-chunk-based-streaming-world.md)
+
+---
+
+## 1. Фундаментальное решение: Разделение симуляции и визуализации (ОРИГИНАЛЬНЫЙ ДИЗАЙН)
+
+### ⚠️ Этот раздел описывает СТАРЫЙ подход (ECS Authoritative)
+
+**Актуальный подход:** См. ADR-003
+
+### Рекомендация (УСТАРЕЛА)
+
+~~**Rust/Bevy ECS** — authoritative детерминистичная симуляция (геймплейная физика, hit detection, урон)~~
+~~**Godot Physics** — презентационный слой (рагдоллы, обломки, интерполяция, client-side prediction)~~
+
+**Новая рекомендация (2025-01-10):**
+- **Bevy ECS** — authoritative game state (health, AI, economy)
+- **Godot Physics** — authoritative transform + physics execution
 
 ### Обоснование из индустрии (2024-2025)
 
@@ -69,29 +134,54 @@
 **Плюсы:** 100% гарантия детерминизма, не зависит от компилятора
 **Минусы:** нельзя использовать сторонние библиотеки (включая physics engines, pathfinding)
 
-### Рекомендация для VOIDRUN
+### Рекомендация для VOIDRUN (ОБНОВЛЕНО 2025-01-10)
 
-**Гибридный подход:**
+**⚠️ Fixed-point НЕ НУЖЕН для Hybrid Architecture**
 
-**Tier 1 (критичная для rollback логика):**
-- Позиции entities, скорости, направления взгляда → **fixed-point** (`fixed` crate или `fxp`)
-- RNG → seeded `ChaCha8Rng` (не `rand::thread_rng()`)
-- Порядок систем → explicit `.chain()` в Bevy
+**Причины:**
+- Single-player priority → rollback не нужен
+- Client-Server netcode → snapshot interpolation, не determinism
+- Saves/loads → достаточно f32/f64
 
-**Tier 2 (некритичная логика):**
-- Экономика, AI decision weights, квестовые таймеры → **f64** (достаточно для saves/loads, не нужен rollback)
-- UI calculations, визуальные эффекты → любая арифметика
+**Новый подход (упрощённый):**
 
-**Tier 3 (только клиент):**
-- Godot интерполяция, камера, частицы → обычные f32
+**ECS (game state):**
+- Health, Stamina, Inventory → **f32** (достаточная точность)
+- Economy prices, AI weights → **f64** (для больших чисел)
+- RNG → seeded `ChaCha8Rng` (для procedural generation)
+- Strategic position → `ZoneId` (enum, не coordinates)
 
-**Компромисс:**
-- Использовать `bevy_rapier` для collision queries (kinematic режим), но конвертировать результаты через fixed-point при применении урона
-- Если обнаружим десинхроны — мигрировать критичные части в full fixed-point
+**Godot (physics):**
+- Transform → **f32** (Godot стандарт)
+- Velocity, acceleration → **f32**
+- Collision detection → Godot Physics (недетерминистично, но OK)
+
+**Когда вернуться к fixed-point:**
+- Если решим делать P2P rollback netcode (маловероятно)
+- Если найдём критичные float bugs (пока нет)
+
+**Компромисс (СТАРЫЙ, опционально):**
+~~- Использовать `bevy_rapier` для collision queries (kinematic режим), но конвертировать результаты через fixed-point при применении урона~~
+~~- Если обнаружим десинхроны — мигрировать критичные части в full fixed-point~~
+
+**Актуальный:** Godot Physics, f32 везде, простота > детерминизм
 
 ---
 
-## 3. Collision Detection: Rapier в детерминистичном режиме
+## 3. Collision Detection (ОБНОВЛЕНО: Godot Physics)
+
+### ⚠️ Rapier опционален в Hybrid Architecture
+
+**Актуальное решение (2025-01-10):**
+- Godot Physics для всех collisions (CharacterBody3D, Area3D)
+- Rapier НЕ используется для movement
+- Опционально: Rapier queries для ECS logic (если понадобится)
+
+**См. детали:** [ADR-003](../decisions/ADR-003-ecs-vs-godot-physics-ownership.md)
+
+---
+
+## 3.1. Collision Detection: Rapier в детерминистичном режиме (СТАРЫЙ ДИЗАЙН)
 
 ### bevy_rapier Capabilities (2024)
 

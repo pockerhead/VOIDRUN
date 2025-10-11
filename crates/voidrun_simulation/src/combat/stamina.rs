@@ -1,13 +1,14 @@
-//! Stamina management система
+//! Stamina management система (Godot-driven combat)
 //!
-//! - Регенерация stamina (10 units/sec default)
-//! - Attack costs (30 stamina)
-//! - Block costs (20 stamina, будет в будущем)
-//! - Exhaustion mechanic (опционально)
+//! ECS ответственность:
+//! - Regenerate stamina (10 units/sec default)
+//! - Exhaustion detection (stamina < 10%)
+//!
+//! Attack costs: Godot AnimationTree triggers → ECS consumes stamina
+//! (пока stub, будет после Godot integration)
 
 use bevy::prelude::*;
 use crate::components::Stamina;
-use crate::combat::hitbox::AttackStarted;
 
 /// Стоимость различных действий (stamina points)
 pub const ATTACK_COST: f32 = 30.0;
@@ -29,24 +30,16 @@ pub fn regenerate_stamina(
     }
 }
 
-/// Система: consume stamina при атаках
+/// Система: consume stamina при атаках (placeholder)
 ///
-/// Слушает AttackStarted события и вычитает ATTACK_COST из stamina attacker.
-/// Если stamina недостаточно — атака не должна была начаться (проверка в AI/input).
+/// TODO: Будет слушать GodotAnimationEvent::AnimationTrigger("attack_start")
+/// Godot AnimationTree trigger → ECS consume stamina
 pub fn consume_stamina_on_attack(
-    mut attack_events: EventReader<AttackStarted>,
-    mut attackers: Query<&mut Stamina>,
+    // TODO: mut animation_events: EventReader<GodotAnimationEvent>,
+    mut _attackers: Query<&mut Stamina>,
 ) {
-    for event in attack_events.read() {
-        if let Ok(mut stamina) = attackers.get_mut(event.attacker) {
-            if !stamina.consume(ATTACK_COST) {
-                eprintln!(
-                    "WARN: Attack started with insufficient stamina: entity {:?} (current: {}, cost: {})",
-                    event.attacker, stamina.current, ATTACK_COST
-                );
-            }
-        }
-    }
+    // Stub для компиляции
+    // Реальная логика будет после Godot integration
 }
 
 /// Exhaustion состояние (опционально)

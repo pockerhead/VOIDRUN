@@ -1,7 +1,7 @@
 # VOIDRUN — Текущее состояние проекта
 
-**Дата:** 2025-01-09
-**Фаза:** ✅ Фаза 1 завершена, → Фаза 1.5 (Presentation Layer)
+**Дата:** 2025-01-10
+**Фаза:** ✅ Фаза 1 завершена, → Фаза 1.5 (Combat Mechanics + Player Control)
 
 ---
 
@@ -63,22 +63,38 @@ Godot Visualization (voidrun_godot)
 
 ## 🎯 Следующие шаги (Фаза 1.5)
 
-### Цель: Presentation Layer Abstraction
-**Зачем:** Отделить simulation от Godot, сделать независимым
+### Цель: Combat Mechanics + Player Control
+**Зачем:** Сделать игру играбельной, проверить combat feel
 
-### Задачи (3-5 дней):
-1. Создать `PresentationClient` trait
-2. Определить `PresentationEvent` enum
-3. Event emission system в simulation
-4. Refactor SimulationBridge → GodotPresentationClient
-5. Создать HeadlessPresentationClient (no-op)
-6. Update tests: использовать HeadlessClient
+### Задачи (5-8 дней):
+
+**Player Control (1-2 дня):**
+- WASD movement
+- Mouse attack (LMB → swing)
+- Camera follow (3rd person)
+- Health/Stamina HUD
+
+**Melee Polish (1 день):**
+- Parry timing (200ms window)
+- Block action (RMB hold)
+- Dodge roll (spacebar, i-frames)
+
+**Ranged Combat (2-3 дня):**
+- Projectile physics (gravity, arc)
+- Bow/crossbow weapon
+- Ranged AI behavior
+- Hit detection
+
+**AI Upgrade (1-2 дня):**
+- Pathfinding (NavigationAgent3D)
+- Ranged tactics (keep distance)
+- Dodge projectiles
 
 ### После этого:
-- Simulation = 100% независима от Godot
-- Легко добавить другие рендеры (Bevy, web, etc)
-- Headless CI tests без godot dependency
-- Моддинг-friendly архитектура
+- Playable prototype (1 player vs NPCs)
+- Combat feel проверен
+- Foundation для inventory/loot
+- Economy можно делать параллельно
 
 ---
 
@@ -130,12 +146,13 @@ Godot Visualization (voidrun_godot)
 
 ## 🔍 Известные Issues / TODO
 
-### Presentation Layer (priority):
-- [ ] Simulation зависит от Godot (tight coupling)
-- [ ] Tests требуют прямого ECS доступа
-- [ ] Нет абстракции для других рендеров
+### Player Control (priority):
+- [ ] Нет player entity (только NPC vs NPC)
+- [ ] Нет input handling
+- [ ] Camera RTS mode (нужен follow mode)
+- [ ] Нет HUD для player
 
-### Combat (polish later):
+### Combat (в работе):
 - [ ] Parry window не реализован (200ms timing)
 - [ ] Block action отсутствует
 - [ ] Dodge отсутствует
@@ -154,27 +171,50 @@ Godot Visualization (voidrun_godot)
 
 ---
 
-## 📝 Решения и Trade-offs
+## 📝 Архитектурные решения (2025-01-10)
 
-### Rapier роль:
-- **Решение:** Rapier только для collision detection (weapon hits)
-- **Движение:** Direct velocity integration (проще, детерминистичнее)
-- **Почему:** KinematicPositionBased не двигается от velocity, нужен CharacterController
+### ⚠️ КЛЮЧЕВОЕ РЕШЕНИЕ: Hybrid Architecture
 
-### Collision groups:
-- **Actors:** `Group::NONE` — проходят друг через друга
-- **Weapons:** коллайдят только с actors
-- **Почему:** Упростило AI (не застревают), weapons всё равно детектят hits
+**Дата:** 2025-01-10
+**См. полное обоснование:** [ADR-003: ECS vs Godot Physics Ownership](decisions/ADR-003-ecs-vs-godot-physics-ownership.md)
 
-### Godot vs Bevy:
-- **Решение:** Остаться на Godot для визуализации
-- **Почему:** Редактор + UI toolkit > +3x FPS (не нужен для systems RPG)
-- **Архитектура:** "Ассеты на Godot, крутим-вертим на Rust"
+**Суть решения:**
+```
+ECS (Strategic Layer)        Godot (Tactical Layer)
+━━━━━━━━━━━━━━━━━━━━━━      ━━━━━━━━━━━━━━━━━━━━━━
+✅ Game state (health, AI)   ✅ Transform (authoritative)
+✅ Combat rules (damage)     ✅ Physics (CharacterBody3D)
+✅ Economy, factions         ✅ Animations, hitboxes
+✅ Strategic position        ✅ Pathfinding (NavAgent)
+        ↓ commands ↑ events
+```
 
-### Netcode:
-- **Решение:** Client-Server (authoritative) вместо P2P rollback
-- **Postponed:** После save/load системы
+**Ключевые изменения:**
+- ❌ Rapier больше НЕ используется для movement (опционален)
+- ✅ Godot Physics authoritative для всего physics
+- ✅ ECS = brain (decisions), Godot = body (execution)
+
+**Почему:**
+- Single-player priority → детерминизм не критичен
+- Client-Server netcode (не P2P) → не требует bit-perfect physics
+- Godot features (NavigationAgent3D, AnimationTree) → меньше кода
+- Фокус на systems (economy, AI) → точная физика не критична
+
+---
+
+### Презентационный слой (ADR-002):
+- **Решение:** SimulationBridge без PresentationClient abstraction
+- **Почему:** YAGNI — Godot работает отлично, смена движка = риск <5%
+- **Assets:** Godot prefabs + Rust load через `load::<T>("res://")`
+
+### Netcode (будущее):
+- **Решение:** Client-Server (authoritative), не P2P rollback
+- **Postponed:** После Combat Mechanics + Player Control
 - **Почему:** Single-player priority, MMORPG-style gameplay
+
+### Rapier роль (УСТАРЕЛО):
+- ~~**Решение:** Rapier только для collision detection (weapon hits)~~
+- **Новое:** Godot Physics для всего, Rapier опционален
 
 ---
 
@@ -202,10 +242,30 @@ godot4 --path .
 - **Roadmap:** [docs/roadmap.md](roadmap.md)
 - **Architecture:**
   - [docs/architecture/bevy-ecs-design.md](architecture/bevy-ecs-design.md)
-  - [docs/architecture/physics-architecture.md](architecture/physics-architecture.md)
+  - [docs/architecture/physics-architecture.md](architecture/physics-architecture.md) ⚠️ v3.0 (Hybrid)
   - [docs/architecture/godot-rust-integration.md](architecture/godot-rust-integration.md)
+  - [docs/architecture/presentation-layer-abstraction.md](architecture/presentation-layer-abstraction.md) ⏸️ (POSTPONED)
+- **Decisions (ADRs):**
+  - [ADR-002: Godot-Rust Integration Pattern](decisions/ADR-002-godot-rust-integration-pattern.md)
+  - [ADR-003: ECS vs Godot Physics Ownership](decisions/ADR-003-ecs-vs-godot-physics-ownership.md) ⚠️ **КЛЮЧЕВОЕ**
 - **Project Vision:** [docs/project-vision.md](project-vision.md)
 
 ---
 
-**Следующая сессия:** Начать Фазу 1.5 (Presentation Layer Abstraction)
+**Следующая сессия:** Начать Фазу 1.5 (Combat Mechanics + Player Control)
+
+---
+
+## 🚫 Отложенные решения
+
+### Presentation Layer Abstraction (POSTPONED)
+- **Статус:** Отложено до после Vertical Slice
+- **Причина:** YAGNI — решает проблему которой нет
+- **Godot работает:** SimulationBridge = правильная архитектура
+- **Детали:** См. [ADR-002](decisions/ADR-002-godot-rust-integration-pattern.md)
+
+### Детерминистичная физика (NOT NEEDED)
+- **Статус:** Не требуется для Hybrid Architecture
+- **Причина:** Single-player priority, Client-Server netcode (не P2P rollback)
+- **Fixed-point math:** Не нужен (f32/f64 достаточно)
+- **Rapier determinism:** Проблема решена отказом от Rapier для movement

@@ -1,75 +1,77 @@
-//! Combat system module
+//! Combat system module (Godot-driven combat architecture)
 //!
-//! Hitbox система, damage calculation, stamina, parry window.
-//! Архитектура: docs/architecture/physics-architecture.md (раздел Combat)
+//! ECS ответственность:
+//! - Game state: Health, Stamina, Attacker stats
+//! - Combat rules: damage calculation, stamina costs
+//! - Events: DamageDealt, EntityDied
+//!
+//! Godot ответственность:
+//! - AnimationTree: weapon swing timing
+//! - Area3D hitbox: collision detection
+//! - GodotCombatEvent: WeaponHit → ECS damage calculation
+//!
+//! Архитектура: docs/decisions/ADR-003-ecs-vs-godot-physics-ownership.md
 
 use bevy::prelude::*;
 
-pub mod hitbox;
+pub mod attacker;
 pub mod damage;
 pub mod stamina;
 pub mod weapon;
 
 // Re-export основных типов
-pub use hitbox::{AttackHitbox, Attacker, AttackStarted, HitboxOverlap};
+pub use attacker::{Attacker, tick_attack_cooldowns};
 pub use damage::{DamageDealt, EntityDied, Dead, calculate_damage};
 pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
-pub use weapon::{Weapon, WeaponState, spawn_weapon, collision};
+pub use weapon::{Weapon, WeaponFired, ProjectileHit};
 
-/// Combat Plugin
+/// Combat Plugin (Godot-driven architecture)
 ///
-/// Регистрирует все combat системы в FixedUpdate для детерминизма.
+/// Регистрирует combat системы в FixedUpdate (64Hz).
+///
 /// Порядок выполнения:
 /// 1. tick_attack_cooldowns — обновление cooldown таймеров
-/// 2. spawn_attack_hitbox — спавн hitbox при AttackStarted событиях
-/// 3. detect_hitbox_overlaps — проверка overlap → HitboxOverlap события
-/// 4. apply_damage — обработка HitboxOverlap → damage → DamageDealt/EntityDied
-/// 5. consume_stamina_on_attack — вычитание stamina за атаки
-/// 6. regenerate_stamina — восстановление stamina
-/// 7. detect_exhaustion — exhaustion status management
+/// 2. apply_damage — обработка GodotCombatEvent → damage calculation
+/// 3. disable_ai_on_death — отключение AI у мертвых
+/// 4. regenerate_stamina — восстановление stamina
+/// 5. detect_exhaustion — exhaustion status management
+///
+/// Godot отправляет GodotCombatEvent::WeaponHit → apply_damage → DamageDealt
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         // Регистрация событий
-        app.add_event::<AttackStarted>()
-            .add_event::<HitboxOverlap>()
-            .add_event::<DamageDealt>()
-            .add_event::<EntityDied>();
+        app.add_event::<DamageDealt>()
+            .add_event::<EntityDied>()
+            .add_event::<WeaponFired>()
+            .add_event::<ProjectileHit>();
 
         // Регистрация систем в FixedUpdate
         app.add_systems(
             FixedUpdate,
             (
-                // Фаза 0: Weapon attachment (для новых actors)
-                weapon::attach_weapons_to_actors,
+                // Фаза 1: Cooldowns (melee + weapon)
+                tick_attack_cooldowns,
+                weapon::update_weapon_cooldowns,
 
-                // Фаза 1: Cooldowns и input
-                hitbox::tick_attack_cooldowns,
+                // Фаза 2: Weapon fire logic (AI)
+                weapon::ai_weapon_fire,
 
-                // Фаза 2: Hitbox spawn и detection (legacy system, позже удалим)
-                hitbox::spawn_attack_hitbox,
-                hitbox::detect_hitbox_overlaps,
-
-                // Фаза 2.5: Weapon swing triggering
-                weapon::trigger_weapon_swing,
-                weapon::weapon_swing_animation,
-
-                // Фаза 3: Weapon collision detection (новая система)
-                weapon::weapon_collision_detection,
-
-                // Фаза 4: Damage application
+                // Фаза 3: Damage application (from Godot events + projectiles)
                 damage::apply_damage,
+                weapon::process_projectile_hits,
 
-                // Фаза 5: Death handling (AI отключение, деспавна нет — трупы остаются)
+                // Фаза 4: Death handling
                 damage::disable_ai_on_death,
 
-                // Фаза 6: Stamina management
-                stamina::consume_stamina_on_attack,
+                // Фаза 5: Stamina management
                 stamina::regenerate_stamina,
                 stamina::detect_exhaustion,
+
+                // Projectile cleanup — в Godot (GodotProjectile::_physics_process)
             )
-                .chain(), // Последовательное выполнение для детерминизма
+                .chain(), // Последовательное выполнение
         );
     }
 }

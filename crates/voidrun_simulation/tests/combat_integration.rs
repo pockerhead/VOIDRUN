@@ -9,6 +9,7 @@
 
 use bevy::prelude::*;
 use voidrun_simulation::*;
+use voidrun_simulation::ai::SpottedEnemies;
 
 /// Helper: создать полный combat App с всеми plugins
 fn create_combat_app(seed: u64) -> App {
@@ -30,17 +31,16 @@ fn spawn_npc_fighter(commands: &mut Commands, position: Vec3, faction_id: u64) -
             // Actor (Required: Health + Stamina)
             Actor { faction_id },
 
-            // Physics
-            PhysicsBody::default(),
-            KinematicController::default(),
-            MovementInput::default(),
-
             // Combat
             Attacker::default(),
 
             // AI
             AIState::default(),
             AIConfig::default(),
+            SpottedEnemies::default(),
+
+            // Movement (Godot-driven)
+            MovementCommand::Idle,
         ))
         .id()
 }

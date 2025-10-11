@@ -1,17 +1,17 @@
-# VOIDRUN: Godot-Rust Integration Architecture (Minimal GDScript)
+# VOIDRUN: Godot-Rust Integration Architecture (Rust-Only)
 
 ## Дата создания: 2025-10-07
-## Последнее обновление: 2025-10-07 (аудит 2024-2025)
-## Версия: 2.0
-## Статус: Validated + Production Bridge Strategy
+## Последнее обновление: 2025-01-10 (аудит + Domain Events + NO GDScript)
+## Версия: 2.2
+## Статус: Validated + Bevy Events Architecture + Rust-Only
 
 ---
 
-## 1. Цель: Максимум Rust, минимум GDScript
+## 1. Цель: 100% Rust, 0% GDScript
 
 ### Рекомендация
 
-**Архитектура "Rust-Centric with Godot as I/O"** — вся игровая логика в Bevy ECS (Rust), Godot используется только как тонкий презентационный слой (рендер, input, audio). GDScript не используется вообще, даже сцены создаются процедурно из Rust через godot-rust (gdext).
+**Архитектура "Rust-Centric with Godot as I/O"** — вся игровая логика в Bevy ECS (Rust), Godot используется только как тонкий презентационный слой (рендер, input, audio). **GDScript не используется ВООБЩЕ** — даже сцены создаются процедурно из Rust через godot-rust (gdext), все Godot nodes пишутся на Rust.
 
 ### Обоснование из индустрии (2024-2025)
 
@@ -38,18 +38,127 @@
 
 ### Trade-offs
 
-**За Rust-centric подход:**
+**За Rust-only подход:**
 - ✅ Детерминизм: вся логика в одном языке (Rust)
-- ✅ Типобезопасность: нет динамических ошибок GDScript в runtime
+- ✅ Типобезопасность: компилятор ловит ошибки до runtime (в отличие от GDScript)
 - ✅ Performance: прямой доступ к Bevy ECS без лишних слоёв
 - ✅ Headless testing: Bevy симуляция работает без Godot
 - ✅ Single source of truth: state в Bevy, Godot только визуализирует
+- ✅ Модульность: godot-rust GodotClass = композиция (не inheritance как в GDScript)
 
 **Против (сложности):**
-- ⚠️ Compile time: Rust медленнее компилируется чем GDScript итерации
+- ⚠️ Compile time: Rust медленнее компилируется (но hot-reload помогает)
 - ⚠️ Godot editor workflow: сцены создаются в Rust, не видны в редакторе
 - ⚠️ Onboarding: дизайнеры/художники не могут трогать логику в редакторе
-- ⚠️ Debugging: ошибки в Rust требуют перекомпиляции (но hot-reload помогает)
+- ⚠️ Debugging: ошибки в Rust требуют перекомпиляции
+
+---
+
+## 1.5 Command/Event Architecture (ADR-004, 2025-01-10)
+
+### Решение: Bevy Events вместо trait-based abstraction
+
+**Прежняя концепция (отклонена):**
+- GodotBridge trait (как PresentationClient) — оверинжиниринг (ADR-002 POSTPONED)
+- Custom Command/Event queues с handlers — громоздко
+
+**Текущая архитектура (ПРИНЯТА):**
+- **Прямая зависимость** voidrun_godot → voidrun_simulation (tight coupling — это OK)
+- **Bevy Events** для всех Command/Event потоков
+- **Change Detection** (`Changed<T>` queries) для sync
+
+### Event Types
+
+**ОБНОВЛЕНО (2025-01-10):** Domain Events вместо одного GodotInputEvent.
+
+**Domain Events из Godot в ECS** (разделение по доменам):
+```rust
+// events/combat.rs
+#[derive(Event, Clone, Debug)]
+pub enum GodotCombatEvent {
+    WeaponHit { attacker: Entity, victim: Entity, hitbox_name: String },
+    Parry { defender: Entity, attacker: Entity },
+}
+
+// events/animation.rs
+#[derive(Event, Clone, Debug)]
+pub enum GodotAnimationEvent {
+    AnimationFinished { entity: Entity, animation: String },
+    AnimationTrigger { entity: Entity, trigger_name: String },
+}
+
+// events/transform.rs
+#[derive(Event, Clone, Debug)]
+pub enum GodotTransformEvent {
+    ZoneTransition { entity: Entity, new_chunk: ChunkCoord },
+    PostSpawn { entity: Entity, actual_position: Vec3 },
+    ArrivedAtDestination { entity: Entity },
+}
+
+// events/ai.rs
+#[derive(Event, Clone, Debug)]
+pub enum GodotAIEvent {
+    ActorSpotted { observer: Entity, target: Entity },
+    ActorLost { observer: Entity, target: Entity },
+}
+
+// events/input.rs
+#[derive(Event, Clone, Debug)]
+pub struct PlayerInputEvent {
+    movement: Vec3,
+    look_dir: Vec3,
+    jump: bool,
+    dodge: bool,
+}
+```
+
+**Domain Events внутри ECS** (модульные события между системами):
+```rust
+// combat/events.rs
+#[derive(Event)]
+pub struct DamageDealt { attacker: Entity, victim: Entity, amount: f32 }
+
+// ai/events.rs
+#[derive(Event)]
+pub struct ZoneTransitionEvent { entity: Entity, from: ChunkCoord, to: ChunkCoord }
+```
+
+### Sync через Change Detection
+
+**Godot sync системы** используют Bevy встроенную Change Detection:
+
+```rust
+// voidrun_godot/src/animation_sync.rs
+pub fn sync_ai_animations(
+    // Changed<AIState> — только entity где AIState изменился
+    query: Query<(Entity, &AIState), Changed<AIState>>,
+    visuals: Res<VisualRegistry>,
+) {
+    for (entity, state) in query.iter() {
+        if let Some(node) = visuals.get(entity) {
+            let anim = node.get_node_as::<AnimationPlayer>("AnimationPlayer");
+            match state {
+                AIState::Attacking => anim.play("attack_swing".into()),
+                AIState::Idle => anim.play("idle".into()),
+                // ...
+            }
+        }
+    }
+}
+```
+
+**Как работает:**
+- Bevy отслеживает изменения компонентов автоматически (tick counter)
+- `Changed<T>` фильтрует только entity с `component.tick > system.last_run_tick`
+- Sync системы обрабатывают только изменённые компоненты (не каждый frame для всех)
+
+**Преимущества:**
+- ✅ Zero boilerplate (встроенный механизм Bevy)
+- ✅ Модульность через типы (не через traits)
+- ✅ Testability (mock events без Godot)
+- ✅ KISS principle (нет промежуточных абстракций)
+
+**См. также:** [ADR-004: Command/Event Architecture](../decisions/ADR-004-command-event-architecture.md)
 
 ---
 
@@ -245,16 +354,23 @@ Godot редактор удобен для ручного placement объект
 - Rust emit: `self.base_mut().emit_signal("health_changed", &[damage.to_variant()])`
 - Rust subscribe: через `#[signal]` attribute → автосоздание signal definition
 
-### Minimal GDScript Interface Points
+### GDScript Usage Policy
 
-**Что всё-таки нужно в GDScript (минимум):**
-- ❌ **Логика:** НЕТ, вся в Rust
-- ❌ **UI behaviour:** НЕТ, генерируется из Rust
-- ✅ **Project settings:** `project.godot` (autoload для Rust Node)
+**СТРОГО ЗАПРЕЩЕНО:**
+- ❌ Писать любой GDScript код
+- ❌ Использовать .gd файлы для логики
+- ❌ Создавать GDScript скрипты в редакторе
+
+**ВСЁ пишется на Rust через godot-rust:**
+- ✅ Godot nodes → `#[derive(GodotClass)]` в Rust
+- ✅ Signals → Rust callable methods
+- ✅ Scene building → процедурно из Rust
+- ✅ Autoload → Rust singleton через GDExtension
+- ✅ **Единственный конфиг:** `project.godot` (autoload для Rust Node)
+
+**Дополнительно:**
 - ✅ **Scene files (*.tscn):** только visual prefab'ы, нет скриптов
 - ✅ **Input mapping:** `project.godot` InputMap (но можно и из Rust переопределять)
-
-**Итого GDScript строк:** 0 (ноль)
 
 ---
 
@@ -669,3 +785,116 @@ Godot UI редактор удобен, но:
 
 **Финальная рекомендация:**
 Rust-Centric подход амбициозный, но технически обоснован. godot-rust (2024-2025) достаточно зрелый для production. godot-bevy библиотека даёт быстрый старт. Если команда готова к Rust learning curve — это архитектурно правильное решение для systems-driven simulation с rollback netcode требованиями.
+
+---
+
+## 15. Best Practices: CharacterBody3D + NavigationAgent3D
+
+**Дата добавления:** 2025-01-10
+**Источник:** Session Log "Navigation & Movement System Fix"
+
+### ⚠️ КРИТИЧНОЕ: CharacterBody3D должен быть Root Node
+
+**❌ АНТИПАТТЕРН (создаёт feedback loop):**
+```
+Node3D (root)                      ← Визуальный контейнер
+└── CharacterBody3D (child)        ← Physics body
+    └── CollisionShape3D
+```
+
+**✅ ПРАВИЛЬНАЯ СТРУКТУРА:**
+```
+CharacterBody3D (root)             ← Physics body = root node
+├── CollisionShape3D
+├── MeshInstance3D (визуалы)
+└── NavigationAgent3D
+```
+
+### Проблема: Exponential Velocity Accumulation
+
+**Симптомы:**
+- Актор начинает двигаться всё быстрее (экспоненциальное ускорение)
+- Через несколько секунд velocity достигает 50-100+ м/с вместо 2-5 м/с
+- `move_and_slide()` не сбрасывает velocity между фреймами
+
+**Root Cause:**
+```rust
+// ❌ ПЛОХОЙ КОД (feedback loop):
+let mut parent_node = visuals.get(&entity);  // Node3D
+let mut body = parent_node.get_node_as::<CharacterBody3D>("Body");
+
+body.set_velocity(velocity);
+body.move_and_slide();  // → body двигается на velocity * delta
+
+// Синхронизация parent с child → ВОТ ПРОБЛЕМА!
+parent_node.set_global_position(body.get_global_position());
+```
+
+**Что происходит:**
+1. `body.move_and_slide()` двигает child CharacterBody3D на `velocity * delta`
+2. `parent_node.set_global_position()` двигает parent Node3D → child автоматически двигается **ЕЩЁ РАЗ** (relative transform сохраняется)
+3. Следующий фрейм: `body.get_velocity()` содержит **удвоенную velocity** → экспоненциальный рост
+4. Результат: актор улетает в космос 🚀
+
+**Решение:**
+```rust
+// ✅ ХОРОШИЙ КОД (root = CharacterBody3D):
+let actor_node = visuals.get(&entity);
+let mut body = actor_node.cast::<CharacterBody3D>();  // Root сам physics body
+
+let velocity = Vector3::new(
+    direction.x * MOVE_SPEED,
+    body.get_velocity().y,  // Сохраняем gravity
+    direction.z * MOVE_SPEED,
+);
+
+body.set_velocity(velocity);
+body.move_and_slide();
+// НЕТ синхронизации — root node сам двигается через move_and_slide()!
+```
+
+### Правила для TSCN Prefabs с Physics
+
+1. **Root node ВСЕГДА physics node** (CharacterBody3D, RigidBody3D)
+2. **НЕ оборачивать physics body в Node3D/Node wrapper**
+3. **НЕ синхронизировать parent ↔ child physics positions**
+4. **Velocity перезаписывать полностью** (не incrementally):
+   ```rust
+   // ✅ ПРАВИЛЬНО:
+   body.set_velocity(new_velocity);  // Полная замена
+
+   // ❌ НЕПРАВИЛЬНО:
+   let old = body.get_velocity();
+   body.set_velocity(old + delta_velocity);  // Накопление!
+   ```
+
+5. **Сохранять Y компонент для gravity:**
+   ```rust
+   let velocity = Vector3::new(
+       horizontal.x * speed,
+       body.get_velocity().y,  // ← КРИТИЧНО для gravity
+       horizontal.z * speed,
+   );
+   ```
+
+### Диагностика проблем с velocity
+
+Добавить лог перед/после `move_and_slide()`:
+```rust
+let old_vel = body.get_velocity();
+voidrun_simulation::log(&format!("velocity BEFORE: {:?}", old_vel));
+
+body.set_velocity(new_velocity);
+body.move_and_slide();
+
+let final_vel = body.get_velocity();
+voidrun_simulation::log(&format!("velocity AFTER: {:?}", final_vel));
+```
+
+**Если `old_vel != new_velocity` (не равны предыдущему set значению)** → есть feedback loop или накопление.
+
+### Ссылки
+
+- **Session Log:** `docs/sessions/2025-01-10-navigation-movement-fix.md`
+- **Fixed Code:** `crates/voidrun_godot/src/systems/movement_system.rs`
+- **Fixed Prefab:** `godot/actors/test_actor.tscn`

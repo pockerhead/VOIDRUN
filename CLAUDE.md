@@ -1,5 +1,7 @@
 # Claude.md — Assistant Operating Guide (Architecture + Code Augmentation)
 
+ОТВЕЧАТЬ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ!!!
+
 ## 1) Project Snapshot
 - **Type:** Single‑player (later co‑op) **systems‑driven space RPG**: living world (factions, economy), **FPS + melee** (STALKER/Dishonored vibe), **trade & expansion** (Stellaris/"Corsairs"), **space flight/combat** (EVE/Starfield).
 - **Goal:** Долгая реиграбельность за счёт симуляции, минимальный «песок в шестернях» UX.
@@ -14,36 +16,96 @@
 
 ## 2) Tech Stack & Boundaries
 - **Core Simulation & Game Logic:** **Rust** (ECS, AI, economy, quests, netcode).
+- **Godot Integration:** **ТОЛЬКО Rust через godot-rust (gdext)**. НИКАКОГО GDScript! Весь код пишется на Rust.
+- **Логирование:** **ВСЕГДА** использовать `voidrun_simulation::log(format!("..."))` вместо `godot_print!()`. Единый logger для всего проекта (Godot + ECS).
 - **Key patterns:** ECS everywhere; Event Bus (pub/sub); Snapshot → Systems → Diffs → Atomic Apply; tick cadences per domain.
 - **Content:** Items/NPC archetypes/quests → YAML/JSON (immutable packs, hot‑reload).
 - **Testing:** Headless galaxy runs в CI, property tests, golden saves, replay checks.
 - Интерфейсы: GDExtension API + UDP network protocol для будущих клиентов
 
-**Актуальная архитектура (v2.0, аудит 2024-2025):**
+**godot-rust (gdext) String handling:**
+- **`set_name()` и подобные методы принимают `&str`** — НЕ нужен `GString::from()`, просто передавай строку напрямую
+- Пример: `node.set_name("MyNode")` — работает, `node.set_name(GString::from("MyNode"))` — избыточно
+- gdext автоматически конвертирует `&str` → внутренний Godot StringName где нужно
+
+**Актуальная архитектура (v2.1, аудит 2025-01-10):**
 
 ВСЮ необходимую и нужную инфу по тому как использовать bevy ecs в нашем проекте можно найти в @docs\architecture\bevy-ecs-design.md (v2.0)
 - **Bevy 0.16** (апрель 2025): observers порядок изменён, ECS Relationships для hitbox иерархий, Required Components
 - **Критическое:** observers теперь запускаются ДО hooks — проверять `entity.is_despawned()` в observers
 
-**Физика и Combat:** @docs\architecture\physics-architecture.md (v2.0) — детерминистичная симуляция, hitbox система, rollback netcode, проверено против best practices 2024-2025.
-- **КРИТИЧЕСКИЙ РИСК:** Rapier BVH детерминизм не гарантирован — Plan B (custom spatial hash) готов
-- **FMA отключение:** `.cargo/config.toml` с `-C target-feature=-fma` для кросс-платформенного детерминизма
-- **Тестирование:** cross-CPU детерминизм тесты (Intel/AMD/Apple Silicon) в Фазе 0
+**Физика и Combat:** @docs\architecture\physics-architecture.md (v3.1) — **HYBRID ARCHITECTURE**
+- **Решение:** ECS = strategic layer (game state), Godot = tactical layer (physics)
+- **Transform ownership:** Godot authoritative (tactical), ECS owns StrategicPosition (strategic)
+- **Rapier:** опционален (не используется для movement), Godot Physics для всего
+- **Детерминизм:** НЕ требуется (single-player priority, client-server netcode)
+- **См. ADR-003:** @docs\decisions\ADR-003-ecs-vs-godot-physics-ownership.md
 
-**Godot-Rust Integration:** @docs\architecture\godot-rust-integration.md (v2.0) — Rust-centric подход (минимум GDScript), godot-bevy для MVP.
-- **КРИТИЧЕСКИЙ РИСК:** godot-bevy несовместим с rollback netcode — custom bridge обязателен для production
-- **Timeline:** godot-bevy для фаз 1-4, миграция на custom bridge при активации rollback (Фаза 5)
-- **Godot 4.3+** (GDExtension API стабилен с 4.1), godot-bevy v0.8
+**Command/Event Architecture:** @docs\architecture\godot-rust-integration.md (v2.1) — Bevy Events вместо traits
+- **Решение:** Прямая зависимость voidrun_godot → voidrun_simulation через Bevy Events
+- **Domain Events** — разделение по доменам (GodotCombatEvent, GodotAnimationEvent, GodotTransformEvent, GodotAIEvent, PlayerInputEvent)
+- **Changed<T> queries** — sync ECS → Godot (только изменённые компоненты)
+- **YAGNI:** Нет GodotBridge trait, нет custom Event Bus, нет промежуточных абстракций
+- **Rust-only:** Все Godot nodes пишутся на Rust через godot-rust (никакого GDScript!)
+- **См. ADR-004:** @docs\decisions\ADR-004-command-event-architecture.md
 
-**Presentation Layer Abstraction:** @docs\architecture\presentation-layer-abstraction.md (v2.0) — PresentationClient trait для изоляции от конкретного движка.
-- **Performance:** использовать generic static dispatch (`<T: PresentationClient>`), не `dyn` trait objects
-- **Rust 2024:** async methods для streaming ассетов (`async fn load_asset_async()`)
-- **Batching критичен:** update_transform_batch() уменьшает overhead с 10-50ms до <1ms
+**Transform Ownership & Strategic Positioning:** ADR-005
+- **Godot Transform** (tactical) — authoritative для physics, rendering, pathfinding
+- **ECS StrategicPosition** (strategic) — chunk-based позиция для AI/quests/economy
+- **StrategicPosition:** `{ chunk: ChunkCoord (IVec2), local_offset: Vec2 }`
+- **PostSpawn коррекция:** Godot отправляет точную позицию после spawn → ECS корректирует local_offset → детерминистичные saves
+- **AI Vision:** VisionCone (Area3D в Rust) → GodotAIEvent (ActorSpotted/ActorLost) → ECS AI decisions
+- **Sync частота:** 0.1-1 Hz (zone transitions), не каждый frame
+- **Почему:** Procgen levels → NavMesh определяет spawn positions (не ECS)
+- **См. ADR-005:** @docs\decisions\ADR-005-transform-ownership-strategic-positioning.md
 
-"Boundaries":
-  - Симуляция: Изолированная от рендера, может работать без клиентов
-  - Протокол: Единый формат событий/команд для GDExt и UDP
-  - Состояние: Snapshot + Command Buffer, готово к сохранению/загрузке/реплеям
+**Chunk-based Streaming World (Procgen):** ADR-006
+- **Решение:** Minecraft-style chunks (32x32м), детерминистичная procgen, seed + deltas saves
+- **ChunkCoord** (IVec2) — базовая единица generation/loading/unloading
+- **Load radius** вокруг игрока (3x3 chunks для interior, больше для planets)
+- **Детерминизм:** `hash_chunk_coord(coord, world_seed) → RNG seed` — всегда одинаковый контент
+- **Saves:** seed (8 bytes) + player (~200 bytes) + chunk deltas (~50 bytes/chunk) = ~1-5 KB total
+- **MMO-ready:** multi-player load radius объединение
+- **См. ADR-006:** @docs\decisions\ADR-006-chunk-based-streaming-world.md
+
+**Godot-Rust Integration:** @docs\architecture\godot-rust-integration.md (v2.2) — Rust-centric подход
+- **SimulationBridge:** Bevy Events для sync (не custom protocol)
+- **Assets:** Godot = asset storage (TSCN prefabs), Rust load через `load::<PackedScene>("res://")`
+- **TSCN Prefabs + Dynamic Attachment:** универсальный паттерн (actor+weapon, ship+modules, vehicle+accessories)
+- **Godot 4.3+** (GDExtension API стабилен с 4.1), godot-rust gdext
+- **См. ADR-002:** @docs\decisions\ADR-002-godot-rust-integration-pattern.md
+- **См. ADR-007:** @docs\decisions\ADR-007-tscn-prefabs-dynamic-attachment.md
+
+**Presentation Layer Abstraction:** @docs\architecture\presentation-layer-abstraction.md — ⏸️ **POSTPONED (YAGNI)**
+- **Решение 2025-01-10:** SimulationBridge (Godot + Rust) — прямая интеграция без абстракции
+- **Почему:** Фокус на геймплей, Godot работает отлично, смена движка = риск <5%
+- **Когда вернуться:** После Vertical Slice, если появится реальная нужда в моддинг API
+
+**Architecture Decisions (ADRs) — полный список:**
+- **ADR-002:** Godot-Rust Integration — SimulationBridge без PresentationClient abstraction (YAGNI)
+- **ADR-003:** ECS vs Godot Physics — Hybrid (Strategic ECS + Tactical Godot)
+- **ADR-004:** Command/Event Architecture — Bevy Events вместо trait-based handlers
+- **ADR-005:** Transform Ownership — Godot Transform + ECS StrategicPosition (chunk-based)
+- **ADR-006:** Chunk-based Streaming World — Procgen, seed + deltas saves, MMO-ready
+- **ADR-007:** TSCN Prefabs + Rust Dynamic Attachment — универсальный паттерн для композиции визуальных префабов
+
+**Boundaries (обновлено 2025-01-10):**
+  - **ECS (Strategic):**
+    - Authoritative game state (health, AI decisions, combat rules, economy, quests)
+    - StrategicPosition (chunk + local_offset) — для AI/saves/network
+    - Bevy Events — domain events (DamageDealt, ZoneTransition, etc.)
+  - **Godot (Tactical):**
+    - Authoritative Transform (position, rotation) — для physics/rendering
+    - CharacterBody3D, NavigationAgent3D — physics + pathfinding
+    - Animation-driven combat — hitboxes trigger events → ECS damage calculation
+  - **Синхронизация:**
+    - Commands (ECS → Godot): high-level goals (MoveToZone, PlayAnimation), event-driven
+    - Events (Godot → ECS): Domain Events (GodotCombatEvent, GodotAnimationEvent, GodotTransformEvent, GodotAIEvent, PlayerInputEvent)
+    - Частота: 0.1-1 Hz для zone transitions, per-change для визуалов (Changed<T>)
+  - **Saves/Loads:**
+    - ECS сохраняет: seed + StrategicPosition + game state (health, inventory, quest flags)
+    - Godot: respawns визуалы, находит Transform из NavMesh при load
+    - Size: ~1-5 KB (seed + deltas), не full snapshot
 
 ## 3) What I Need From You (Claude)
 **Claude — интеллектуальная аугментация: архитектурный советник + smart code printer.**
@@ -52,7 +114,7 @@
 
 **Claude отвечает за:**
 - Архитектурные решения и trade-offs анализ
-- Код (Rust, GDScript, YAML, shaders) — implementation по user direction
+- Код (Rust, YAML, shaders) — implementation по user direction. **ТОЛЬКО RUST, НИКАКОГО GDScript!**
 - Research и validation (best practices, риски, библиотеки)
 - Рефакторинг планирование (где трогать, в каком порядке)
 - Документация (ADR, tech specs, комментарии)
@@ -95,7 +157,7 @@
 - Tests — где критично (детерминизм, инварианты), не для галочки
 
 ### DO (разрешено)
-- Писать код: Rust, GDScript, YAML, JSON, shaders, configs
+- Писать код: **ТОЛЬКО Rust**, YAML, JSON, shaders, configs. **НИКАКОГО GDScript!**
 - Предлагать несколько вариантов implementation (с trade-offs)
 - Рефакторить по плану (после approval)
 - Research библиотек и best practices

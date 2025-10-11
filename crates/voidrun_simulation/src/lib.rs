@@ -1,32 +1,30 @@
 //! VOIDRUN Simulation Core
 //!
-//! Детерминистичная ECS-симуляция на Bevy 0.16.
+//! ECS-симуляция на Bevy 0.16 (strategic layer)
 //! Архитектура: docs/architecture/bevy-ecs-design.md
+//!
+//! HYBRID ARCHITECTURE (ADR-003):
+//! - ECS = strategic layer (game state, AI, combat rules)
+//! - Godot = tactical layer (physics, rendering, pathfinding)
 
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::*;
-use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 
 // Публичные модули
-pub mod components;
-pub mod physics;
-pub mod combat;
 pub mod ai;
-pub mod rollback;
+pub mod combat;
+pub mod components;
 
 // Re-export базовых компонентов для удобства
-pub use components::{Actor, Health, Stamina, PhysicsBody};
-pub use physics::{KinematicController, MovementInput, KinematicControllerPlugin, spawn_kinematic_character};
+pub use ai::{AIConfig, AIPlugin, AIState};
 pub use combat::{
-    CombatPlugin,
-    AttackHitbox, Attacker, AttackStarted, HitboxOverlap,
-    DamageDealt, EntityDied, calculate_damage,
+    calculate_damage, tick_attack_cooldowns, Attacker, CombatPlugin, DamageDealt, Dead, EntityDied,
     Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST,
-    Weapon, WeaponState, spawn_weapon, collision,
 };
-pub use ai::{AIPlugin, AIState, AIConfig};
-pub use rollback::Rollback;
+pub use components::{
+    Actor, Attachment, AttachmentType, DetachAttachment, Health, MovementCommand, Stamina,
+};
 
 /// Главный plugin симуляции (объединяет все подсистемы)
 pub struct SimulationPlugin;
@@ -34,18 +32,12 @@ pub struct SimulationPlugin;
 impl Plugin for SimulationPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Fixed timestep 64Hz для детерминизма
+            // Fixed timestep 64Hz для simulation tick
             .insert_resource(Time::<Fixed>::from_hz(64.0))
             // Детерминистичный RNG (seed по умолчанию)
             .insert_resource(DeterministicRng::new(42))
-            // Rapier Physics (работает в FixedUpdate по умолчанию в 0.31)
-            .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
-            // Подсистемы
-            .add_plugins((
-                KinematicControllerPlugin,
-                CombatPlugin,
-                AIPlugin,
-            ));
+            // Подсистемы (ECS strategic layer)
+            .add_plugins((CombatPlugin, AIPlugin));
     }
 }
 
@@ -100,23 +92,32 @@ where
     snapshot
 }
 
-pub static mut LOGGER: Option<Box<dyn LogPrinter>> = None;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+// Потокобезопасный глобальный logger (упростили: убрали Arc, он не нужен для static)
+static LOGGER: Lazy<Mutex<Option<Box<dyn LogPrinter>>>> =
+    Lazy::new(|| Mutex::new(None));
 
 pub fn set_logger(logger: Box<dyn LogPrinter>) {
-    unsafe {
-        LOGGER = Some(logger);
+    *LOGGER.lock().unwrap() = Some(logger);
+}
+
+pub fn set_logger_if_needed(logger: Box<dyn LogPrinter>) {
+    if LOGGER.lock().unwrap().is_none() {
+        set_logger(logger);
     }
 }
 
-pub trait LogPrinter {
+pub trait LogPrinter: Send + Sync {
     fn log(&self, message: &str);
 }
 
 pub fn log(message: &str) {
-    unsafe {
-        if let Some(logger) = LOGGER.as_ref() {
-            logger.log(message);
-        }
+    // Лочим mutex, достаём logger, вызываем log (timestamp добавляем здесь, не в GodotLogger)
+    if let Some(logger) = LOGGER.lock().unwrap().as_ref() {
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+        logger.log(&format!("[{}] {}", timestamp, message));
     }
 }
 
@@ -129,5 +130,5 @@ impl LogPrinter for ConsoleLogger {
 }
 
 pub fn init_logger() {
-    set_logger(Box::new(ConsoleLogger));
+    set_logger_if_needed(Box::new(ConsoleLogger));
 }

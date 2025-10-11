@@ -1,0 +1,26 @@
+[gd_scene load_steps=3 format=3 uid="uid://1omaibv2lmqu"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_6kfj7"]
+radius = 0.06
+height = 0.3
+
+[sub_resource type="BoxMesh" id="BoxMesh_6kfj7"]
+size = Vector3(0.04, 0.14, 0.075)
+
+[node name="Node3D" type="Node3D"]
+
+[node name="WeaponPlacement" type="Node3D" parent="."]
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 0.088, -0.079)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
+mesh = SubResource("CapsuleMesh_6kfj7")
+skeleton = NodePath("../..")
+
+[node name="BulletSpawn" type="Node3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.1350438)
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.117724, -0.07213485)
+mesh = SubResource("BoxMesh_6kfj7")
+skeleton = NodePath("../..")
