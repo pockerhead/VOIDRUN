@@ -107,6 +107,108 @@
     - Godot: respawns визуалы, находит Transform из NavMesh при load
     - Size: ~1-5 KB (seed + deltas), не full snapshot
 
+## 2.5) Rust Code Style: Golden Path Way
+
+### ⭐ Golden Path Pattern (let-else)
+
+**ПРЕДПОЧИТАТЬ:**
+```rust
+let Some(value) = optional else {
+    return;  // или continue, или Err(...)
+};
+
+let Ok(result) = fallible else {
+    continue;
+};
+
+// Продолжаем работу с value/result — код НЕ вложен
+do_something_with(value);
+```
+
+**ИЗБЕГАТЬ (кавычко-ад):**
+```rust
+if let Some(value) = optional {
+    if let Ok(result) = fallible {
+        if let Some(other) = another {
+            // 3+ уровня вложенности — плохо читается
+            do_something_with(value, result, other);
+        }
+    }
+}
+```
+
+### Когда использовать if-let
+
+**✅ ДОПУСТИМО для if-let:**
+- Единичная проверка БЕЗ дальнейшей вложенности:
+  ```rust
+  if let Some(target) = combat_target {
+      engage_combat(target);  // Всего 1 уровень вложенности
+  }
+  ```
+
+- Когда нужен `else` блок с альтернативной логикой:
+  ```rust
+  if let Some(weapon) = equipped_weapon {
+      fire_weapon(weapon);
+  } else {
+      show_unarmed_attack();
+  }
+  ```
+
+**❌ НЕ ИСПОЛЬЗОВАТЬ if-let для:**
+- Цепочки проверок (2+ уровня вложенности) → используй let-else
+- Guard conditions в начале функции → let-else + early return
+- Итерация по query результатам → let-else + continue
+
+### Примеры из кодабазы
+
+**❌ ДО (плохо — кавычко-ад):**
+```rust
+for (entity, command) in query.iter() {
+    if let Some(actor_node) = visuals.get(&entity) {
+        if let Some(mut nav_agent) = actor_node.try_get_node_as::<NavigationAgent3D>("Nav") {
+            if let Some(mut body) = actor_node.try_get_node_as::<CharacterBody3D>("Body") {
+                // Логика на 4 уровне вложенности — плохо читается
+                body.set_velocity(velocity);
+            }
+        }
+    }
+}
+```
+
+**✅ ПОСЛЕ (хорошо — golden path):**
+```rust
+for (entity, command) in query.iter() {
+    let Some(actor_node) = visuals.get(&entity) else {
+        continue;
+    };
+
+    let Some(mut nav_agent) = actor_node.try_get_node_as::<NavigationAgent3D>("Nav") else {
+        continue;
+    };
+
+    let Some(mut body) = actor_node.try_get_node_as::<CharacterBody3D>("Body") else {
+        continue;
+    };
+
+    // Логика на первом уровне — легко читается
+    body.set_velocity(velocity);
+}
+```
+
+### Преимущества Golden Path:
+
+1. **Читаемость:** Весь код на одном уровне вложенности
+2. **Понятность:** Сразу видно guard conditions (что может пойти не так)
+3. **Масштабируемость:** Легко добавлять новые проверки БЕЗ увеличения вложенности
+4. **Линейность:** Код читается сверху вниз, как история
+5. **Меньше скобок:** Не надо считать `}}}` в конце функций
+
+### Правило:
+
+> **Если видишь 2+ уровня вложенности с if-let/match — рефактори на let-else + early return/continue**
+
 ## 3) What I Need From You (Claude)
 **Claude — интеллектуальная аугментация: архитектурный советник + smart code printer.**
 
