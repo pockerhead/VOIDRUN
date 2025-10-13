@@ -19,25 +19,35 @@ use crate::systems::visual_registry::VisualRegistry;
 /// Spawn visuals for newly created actors
 ///
 /// NAMING: `_main_thread` суффикс = Godot API calls (NonSend resources)
+/// ADR-005: Spawn на StrategicPosition + PostSpawn коррекция
 pub fn spawn_actor_visuals_main_thread(
-    query: Query<(Entity, &Actor, &Health, &Stamina, &AIState), Added<Actor>>,
+    query: Query<(Entity, &Actor, &Health, &Stamina, &AIState, &voidrun_simulation::StrategicPosition, &voidrun_simulation::PrefabPath), Added<Actor>>,
     mut visuals: NonSendMut<VisualRegistry>,
     scene_root: NonSend<crate::systems::SceneRoot>,
+    mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
-    for (entity, actor, health, stamina, ai_state) in query.iter() {
-        // Загружаем TSCN prefab из ассетов
+    for (entity, actor, health, stamina, ai_state, strategic_pos, prefab_path) in query.iter() {
+        // Загружаем TSCN prefab из PrefabPath компонента
         let mut loader = ResourceLoader::singleton();
-        let path = "res://actors/test_actor.tscn";
-        let scene = loader.load_ex(path).done();
+        let scene = loader.load_ex(&prefab_path.path).done();
 
-        if scene.is_none() {
-            voidrun_simulation::log("❌ Failed to load test_actor.tscn");
+        let Some(scene) = scene else {
+            voidrun_simulation::log(&format!("❌ Failed to load prefab: {}", prefab_path.path));
             continue;
-        }
+        };
 
-        let packed_scene: Gd<PackedScene> = scene.unwrap().cast();
-        let instance = packed_scene.instantiate().unwrap();
+        let packed_scene: Gd<PackedScene> = scene.cast();
+
+        let Some(instance) = packed_scene.instantiate() else {
+            voidrun_simulation::log(&format!("❌ Failed to instantiate prefab: {}", prefab_path.path));
+            continue;
+        };
+
         let mut actor_node = instance.cast::<Node3D>();
+
+        // Спавним на стратегической позиции (StrategicPosition → world coordinates)
+        let spawn_pos = strategic_pos.to_world_position(0.5); // Y=0.5 (над землёй)
+        actor_node.set_position(Vector3::new(spawn_pos.x, spawn_pos.y, spawn_pos.z));
 
         // Цвет фракции — красим все MeshInstance3D дочерние ноды
         let faction_color = match actor.faction_id {
@@ -91,13 +101,10 @@ pub fn spawn_actor_visuals_main_thread(
         // ПОСЛЕ добавления в SceneTree — добавляем NavigationAgent3D как прямой ребёнок actor_node
         // (NavigationAgent требует чтобы parent был уже в дереве сцены)
         let mut nav_agent = NavigationAgent3D::new_alloc();
-        nav_agent.set_debug_enabled(true);
-        nav_agent.set_debug_path_custom_color(Color::from_rgb(0.8, 0.2, 0.2));
         nav_agent.set_name("NavigationAgent3D"); // ВАЖНО: задаём имя явно!
-        // Увеличенные distances чтобы актор не маятничил
-        nav_agent.set_path_desired_distance(1.0);
-        nav_agent.set_target_desired_distance(2.0); // Когда считать что достигли цели
-        nav_agent.set_path_max_distance(3.0);
+
+        // nav_agent.set_debug_enabled(true);
+        // nav_agent.set_debug_path_custom_color(Color::from_rgb(0.8, 0.2, 0.2));
 
         // КРИТИЧНО: avoidance = false (мы не используем velocity_computed callback)
         // Наша архитектура: ECS → NavigationAgent.get_next_path_position() → CharacterBody
@@ -121,7 +128,14 @@ pub fn spawn_actor_visuals_main_thread(
         crate::projectile::register_collision_body(actor_id, entity);
         voidrun_simulation::log(&format!("  → CharacterBody3D (root) mapped for entity {:?}", entity));
 
-        voidrun_simulation::log(&format!("✅ Spawned visual (TSCN prefab) for entity {:?}", entity));
+        // КРИТИЧНО: PostSpawn коррекция — отправляем точную позицию обратно в ECS
+        let final_position = actor_node.get_global_position();
+        transform_events.write(voidrun_simulation::ai::GodotTransformEvent::PostSpawn {
+            entity,
+            position: Vec3::new(final_position.x, final_position.y, final_position.z),
+        });
+
+        voidrun_simulation::log(&format!("✅ Spawned visual (prefab: {}) at strategic {:?}", prefab_path.path, strategic_pos));
     }
 }
 
@@ -133,10 +147,12 @@ pub fn sync_health_labels_main_thread(
     mut visuals: NonSendMut<VisualRegistry>,
 ) {
     for (entity, health) in query.iter() {
-        if let Some(label) = visuals.health_labels.get_mut(&entity) {
-            let text = format!("HP: {}/{}", health.current, health.max);
-            label.set_text(text.as_str());
-        }
+        let Some(label) = visuals.health_labels.get_mut(&entity) else {
+            continue;
+        };
+
+        let text = format!("HP: {}/{}", health.current, health.max);
+        label.set_text(text.as_str());
     }
 }
 
@@ -148,10 +164,12 @@ pub fn sync_stamina_labels_main_thread(
     mut visuals: NonSendMut<VisualRegistry>,
 ) {
     for (entity, stamina) in query.iter() {
-        if let Some(label) = visuals.stamina_labels.get_mut(&entity) {
-            let text = format!("Stamina: {:.0}/{:.0}", stamina.current, stamina.max);
-            label.set_text(text.as_str());
-        }
+        let Some(label) = visuals.stamina_labels.get_mut(&entity) else {
+            continue;
+        };
+
+        let text = format!("Stamina: {:.0}/{:.0}", stamina.current, stamina.max);
+        label.set_text(text.as_str());
     }
 }
 
@@ -163,26 +181,90 @@ pub fn sync_ai_state_labels_main_thread(
     mut visuals: NonSendMut<VisualRegistry>,
 ) {
     for (entity, state) in query.iter() {
-        if let Some(label) = visuals.ai_state_labels.get_mut(&entity) {
-            let text = format!("[{:?}]", state);
-            label.set_text(text.as_str());
+        let Some(label) = visuals.ai_state_labels.get_mut(&entity) else {
+            continue;
+        };
+
+        let text = format!("[{:?}]", state);
+        label.set_text(text.as_str());
+    }
+}
+
+/// Disable collision for dead actors (HP == 0) + paint gray + schedule despawn after 5 sec
+///
+/// Отключает collision layer/mask у CharacterBody3D когда актёр умирает.
+/// Красит все MeshInstance3D в серый цвет.
+/// Добавляет компонент DespawnAfter для деспавна через 5 секунд.
+pub fn disable_collision_on_death_main_thread(
+    query: Query<(Entity, &Health), Changed<Health>>,
+    visuals: NonSend<VisualRegistry>,
+    mut commands: Commands,
+    time: Res<Time>,
+) {
+    use godot::classes::CharacterBody3D;
+
+    for (entity, health) in query.iter() {
+        // Проверяем что актёр мёртв (HP == 0)
+        if health.current > 0 {
+            continue;
+        }
+
+        // Получаем Godot node
+        let Some(actor_node) = visuals.visuals.get(&entity) else {
+            continue;
+        };
+
+        // Пробуем получить CharacterBody3D (root node в test_actor.tscn)
+        if let Some(mut body) = actor_node.clone().try_cast::<CharacterBody3D>().ok() {
+            // 1. Отключаем collision (убираем все layers/masks)
+            body.set_collision_layer(0);
+            body.set_collision_mask(0);
+
+            // 2. Красим все MeshInstance3D в серый цвет
+            for i in 0..body.get_child_count() {
+                if let Some(mut mesh) = body.get_child(i).and_then(|c| c.try_cast::<MeshInstance3D>().ok()) {
+                    let mut material = StandardMaterial3D::new_gd();
+                    material.set_albedo(Color::from_rgb(0.4, 0.4, 0.4)); // Серый
+                    mesh.set_surface_override_material(0, &material.upcast::<Material>());
+                }
+            }
+
+            voidrun_simulation::log(&format!(
+                "💀 Entity {:?} died — collision disabled, painted gray, despawn in 5 sec",
+                entity
+            ));
+
+            // 3. Добавляем компонент DespawnAfter для удаления через 5 секунд
+            let despawn_time = time.elapsed_secs() + 5.0;
+            commands.entity(entity).insert(voidrun_simulation::combat::DespawnAfter { despawn_time });
         }
     }
 }
 
-/// Sync transform changes → Godot Node3D position
+/// Despawn Godot visuals for despawned ECS entities
 ///
-/// NAMING: `_main_thread` суффикс = Godot API calls (NonSend resources)
-pub fn sync_transforms_main_thread(
-    query: Query<(Entity, &Transform), (Changed<Transform>, Without<voidrun_simulation::MovementCommand>)>,
+/// Удаляет Godot nodes когда ECS entity деспавнится.
+/// Вызывается в Update после despawn_after_timeout.
+pub fn despawn_actor_visuals_main_thread(
+    mut removed: RemovedComponents<voidrun_simulation::Actor>,
     mut visuals: NonSendMut<VisualRegistry>,
 ) {
-    // Синхронизируем ECS Transform → Godot ТОЛЬКО для акторов БЕЗ MovementCommand
-    // (акторы с MovementCommand управляются NavigationAgent, их позиция authoritative в Godot)
-    for (entity, transform) in query.iter() {
-        if let Some(node) = visuals.visuals.get_mut(&entity) {
-            let pos = transform.translation;
-            node.set_position(Vector3::new(pos.x, pos.y, pos.z));
+    for entity in removed.read() {
+        // Удаляем Godot node
+        if let Some(mut node) = visuals.visuals.remove(&entity) {
+            voidrun_simulation::log(&format!("🗑️ Removing Godot node for entity {:?}", entity));
+            node.queue_free(); // Отложенное удаление (Godot safe)
         }
+
+        // Очищаем все связанные entries в registry
+        visuals.health_labels.remove(&entity);
+        visuals.stamina_labels.remove(&entity);
+        visuals.ai_state_labels.remove(&entity);
+        // node_to_entity будет очищен автоматически при queue_free
     }
 }
+
+// УДАЛЕНО: sync_transforms_main_thread
+// ADR-005: Godot Transform authoritative (не синхронизируем из ECS)
+// Transform обновляется через CharacterBody3D.move_and_slide()
+// StrategicPosition sync только при zone transitions (0.1-1 Hz)

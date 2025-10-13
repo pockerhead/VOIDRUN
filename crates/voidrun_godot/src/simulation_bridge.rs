@@ -3,8 +3,7 @@ use godot::classes::{
     Node3D, INode3D, MeshInstance3D, PlaneMesh, SphereMesh,
     StandardMaterial3D, DirectionalLight3D,
     Node, Mesh, Material, CpuParticles3D,
-    NavigationRegion3D, NavigationMesh,
-    NavigationServer3D, NavigationMeshSourceGeometryData3D,
+    NavigationRegion3D,
     light_3d::Param as LightParam,
     base_material_3d::{ShadingMode as BaseMaterial3DShading, Flags as BaseMaterial3DFlags},
     cpu_particles_3d::{EmissionShape, Parameter as CpuParam},
@@ -15,6 +14,7 @@ use crate::camera::rts_camera::RTSCamera3D;
 use crate::systems::{VisualRegistry, AttachmentRegistry, SceneRoot, VisionTracking};
 use voidrun_simulation::ai::{AIState, SpottedEnemies};
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use godot::classes::Timer;
 
 /// Мост между Godot и Rust ECS симуляцией (100% Rust, no GDScript)
 ///
@@ -42,6 +42,7 @@ impl INode3D for SimulationBridge {
     fn ready(&mut self) {
         GodotLogger::clear_log_file();
         voidrun_simulation::set_logger(Box::new(GodotLogger));
+        voidrun_simulation::set_log_level(LogLevel::Error);
         voidrun_simulation::log("SimulationBridge ready - building 3D scene in Rust");
 
         // 1. Создаём navigation region + ground
@@ -74,15 +75,19 @@ impl INode3D for SimulationBridge {
             sync_health_labels_main_thread,
             sync_stamina_labels_main_thread,
             sync_ai_state_labels_main_thread,
-            sync_transforms_main_thread,
+            disable_collision_on_death_main_thread,
+            despawn_actor_visuals_main_thread,
+            // УДАЛЕНО: sync_transforms_main_thread (ADR-005)
             attach_prefabs_main_thread,
             detach_prefabs_main_thread,
             poll_vision_cones_main_thread,
             weapon_aim_main_thread,
+            process_weapon_fire_intents_main_thread,
             weapon_fire_main_thread,
             process_godot_projectile_hits,
             process_movement_commands_main_thread,
             apply_navigation_velocity_main_thread,
+            // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
         };
 
 
@@ -93,30 +98,32 @@ impl INode3D for SimulationBridge {
                 spawn_actor_visuals_main_thread,
                 attach_prefabs_main_thread,
                 detach_prefabs_main_thread,
+                // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven в apply_navigation_velocity)
                 poll_vision_cones_main_thread,    // VisionCone → GodotAIEvent
                 process_movement_commands_main_thread, // MovementCommand → NavigationAgent3D
-                apply_navigation_velocity_main_thread, // NavigationAgent → CharacterBody velocity
+                apply_navigation_velocity_main_thread, // NavigationAgent → CharacterBody + PositionChanged event
                 weapon_aim_main_thread,           // Aim RightHand at target
+                process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
                 weapon_fire_main_thread,          // WeaponFired → spawn GodotProjectile
                                                   // Projectile physics → GodotProjectile::_physics_process
                 process_godot_projectile_hits,    // Godot queue → ECS ProjectileHit events
                 sync_health_labels_main_thread,
                 sync_stamina_labels_main_thread,
                 sync_ai_state_labels_main_thread,
-                sync_transforms_main_thread,
+                disable_collision_on_death_main_thread, // Отключение collision + gray + DespawnAfter
+                despawn_actor_visuals_main_thread, // Удаление Godot nodes для despawned entities
             ).chain(),
         );
 
-        // 5. Спавним 2 NPC в симуляции (с разными характеристиками для асимметрии)
-        let world = app.world_mut();
-        spawn_test_npc(world, (-3.0, 0.5, 0.0), 1, 100, 1); // Faction 1: 100 HP, 25 damage
-        // spawn_test_npc(world, (3.0, 0.5, 0.0), 2, 80, 2);   // Faction 2: 80 HP, 30 damage (больше урона, меньше HP)
+        // 5. Создаём маркер для отложенного спавна NPC (через 5 секунд)
+        app.world_mut().spawn(SpawnNPCsAfter { spawn_time: 5.0 });
 
-        // Визуалы будут созданы автоматически через spawn_actor_visuals_main_thread систему (Added<Actor>)
+        // Регистрируем систему отложенного спавна
+        app.add_systems(bevy::prelude::Update, delayed_npc_spawn_system);
 
         self.simulation = Some(app);
 
-        voidrun_simulation::log("Scene ready: 2 NPCs spawned (visuals через ECS systems)");
+        voidrun_simulation::log("Scene ready: NPCs will spawn after 5 sec (delayed spawn)");
     }
 
     fn process(&mut self, delta: f64) {
@@ -156,89 +163,73 @@ impl INode3D for SimulationBridge {
 
 #[godot_api]
 impl SimulationBridge {
-    /// Создать NavigationRegion3D + NavMesh через NavigationServer3D API (процедурная генерация)
+    /// Создать NavigationRegion3D + NavMesh (baking из SceneTree children)
     ///
-    /// АРХИТЕКТУРА (для процгена):
-    /// - NavigationMeshSourceGeometryData3D: процедурная геометрия (vertices/faces)
-    /// - NavigationServer3D::bake_from_source_geometry_data(): runtime baking
-    /// - NavigationRegion3D::set_navigation_mesh(): установка результата
-    ///
-    /// ПОЧЕМУ НЕ bake_navigation_mesh():
-    /// - Требует StaticBody3D/CSG nodes в SceneTree (не работает для динамической геометрии)
-    /// - Для процгена нужен прямой контроль над геометрией
+    /// TEST: Проверяем что NavMesh запекается из StaticBody3D/CSGBox3D children,
+    /// а не из процедурной геометрии (для будущего chunk building).
     fn create_navigation_region(&mut self) {
-        use godot::builtin::Aabb;
+        use crate::chunk_navmesh::{create_test_navigation_region_with_obstacles, NavMeshBakingParams};
 
-        // 1. Создать NavigationMesh с параметрами
-        let mut nav_mesh = NavigationMesh::new_gd();
-        nav_mesh.set_cell_size(0.25);
-        nav_mesh.set_cell_height(0.25); // Синхронизируем с ProjectSettings
-        nav_mesh.set_agent_height(1.8);
-        nav_mesh.set_agent_radius(0.5);
-        nav_mesh.set_agent_max_climb(0.5);
-
-        // КРИТИЧНО: AABB для baking — ограничиваем область (400x400м, высота 2м)
-        nav_mesh.set_filter_baking_aabb(Aabb {
+        // 1. Создаём параметры NavMesh baking
+        let mut params = NavMeshBakingParams::default();
+        params.baking_aabb = godot::builtin::Aabb {
             position: Vector3::new(-200.0, -1.0, -200.0),
-            size: Vector3::new(400.0, 2.0, 400.0),
+            size: Vector3::new(400.0, 10.0, 400.0), // Высота 10м (для боксов)
+        };
+
+        // 2. Создаём NavigationRegion3D с тестовыми obstacles через утилиту
+        let mut nav_region = create_test_navigation_region_with_obstacles(&params);
+
+        // 3. Добавляем NavigationRegion3D в сцену ПЕРЕД baking
+        self.base_mut().add_child(&nav_region.clone().upcast::<Node>());
+
+        voidrun_simulation::log("🔧 Baking NavMesh from SceneTree (StaticBody3D children)...");
+
+        // 4. Bake NavMesh из SceneTree children (КРИТИЧНО: region должен быть в tree!)
+        nav_region.bake_navigation_mesh(); // АСИНХРОННЫЙ baking из children
+
+        // 5. Создаём Timer для отложенной проверки результата (baking асинхронный)
+        let mut timer = Timer::new_alloc();
+        timer.set_wait_time(2.0); // 2 секунды задержка
+        timer.set_one_shot(true);
+
+        // ВАЖНО: сначала add_child, потом connect и start!
+        self.base_mut().add_child(&timer.clone().upcast::<Node>());
+
+        // Clone nav_region для callback
+        let nav_region_for_callback = nav_region.clone();
+
+        // Создаём callable из замыкания
+        let check_callback = Callable::from_fn("check_navmesh_bake", move |_args| {
+            voidrun_simulation::log_error("⏰ Timer callback triggered!");
+
+            let baked_mesh = nav_region_for_callback.get_navigation_mesh();
+            if let Some(mesh) = baked_mesh {
+                let vertex_count = mesh.get_vertices().len();
+                let polygon_count = mesh.get_polygon_count();
+                voidrun_simulation::log_error(&format!(
+                    "✅ NavMesh baked (after 2 sec): {} vertices, {} polygons",
+                    vertex_count, polygon_count
+                ));
+
+                if polygon_count == 0 {
+                    voidrun_simulation::log_error("❌ WARNING: NavMesh has 0 polygons! Check geometry/parameters");
+                } else {
+                    voidrun_simulation::log_error("🎉 NavMesh baking SUCCESS - physical objects detected!");
+                }
+            } else {
+                voidrun_simulation::log_error("❌ ERROR: Failed to bake NavMesh!");
+            }
+            Variant::nil()
         });
 
-        // 2. Создать source geometry data
-        let mut source_geometry = NavigationMeshSourceGeometryData3D::new_gd();
+        // Подключаем timeout signal к callable
+        timer.connect("timeout", &check_callback);
 
-        // 3. Генерация треугольников для плоскости 400x400м
-        // Простой quad из 2 треугольников — тестируем базовый случай
-        let mut vertices = PackedVector3Array::new();
+        // Запускаем timer
+        timer.start();
 
-        // Triangle 1 (clockwise from top):
-        vertices.push(Vector3::new(-200.0, 0.0, -200.0)); // top-left
-        vertices.push(Vector3::new(200.0, 0.0, -200.0));  // top-right
-        vertices.push(Vector3::new(200.0, 0.0, 200.0));   // bottom-right
-
-        // Triangle 2:
-        vertices.push(Vector3::new(-200.0, 0.0, -200.0)); // top-left
-        vertices.push(Vector3::new(200.0, 0.0, 200.0));   // bottom-right
-        vertices.push(Vector3::new(-200.0, 0.0, 200.0));  // bottom-left
-
-        voidrun_simulation::log(&format!("📐 Generated {} vertices for NavMesh", vertices.len()));
-        source_geometry.add_faces(&vertices, Transform3D::IDENTITY);
-
-        // 4. Bake NavMesh из процедурной геометрии (синхронно)
-        voidrun_simulation::log("🔧 Baking NavMesh from procedural geometry (NavigationServer3D)...");
-
-        let mut nav_server = NavigationServer3D::singleton();
-        nav_server.bake_from_source_geometry_data(&nav_mesh, &source_geometry);
-
-        // Debug: проверяем результат
-        let vertex_count = nav_mesh.get_vertices().len();
-        let polygon_count = nav_mesh.get_polygon_count();
-        voidrun_simulation::log(&format!("✅ NavMesh baked: {} vertices, {} polygons", vertex_count, polygon_count));
-
-        if polygon_count == 0 {
-            voidrun_simulation::log("❌ ERROR: NavMesh has 0 polygons! Check geometry/parameters");
-        }
-
-        // 5. Создать NavigationRegion3D и установить NavMesh
-        let mut nav_region = NavigationRegion3D::new_alloc();
-        nav_region.set_navigation_mesh(&nav_mesh);
-        nav_region.set_name("NavigationRegion3D");
-
-        self.base_mut().add_child(&nav_region.upcast::<Node>());
-
-        // 6. Создать visual mesh (ground plane)
-        let mut ground_mesh = MeshInstance3D::new_alloc();
-        let mut plane = PlaneMesh::new_gd();
-        plane.set_size(Vector2::new(400.0, 400.0));
-        ground_mesh.set_mesh(&plane.upcast::<Mesh>());
-
-        // Зелёный материал
-        let mut material = StandardMaterial3D::new_gd();
-        material.set_albedo(Color::from_rgb(0.3, 0.5, 0.3));
-        ground_mesh.set_surface_override_material(0, &material.upcast::<Material>());
-
-        self.base_mut().add_child(&ground_mesh.upcast::<Node>());
-
-        voidrun_simulation::log("✅ NavigationRegion3D ready (procedural NavMesh via NavigationServer3D)");
+        voidrun_simulation::log_error("✅ NavigationRegion3D ready, baking in progress (check in 2 sec)...");
     }
 
     /// Создать lights (directional sun)
@@ -366,21 +357,67 @@ impl SimulationBridge {
     // - sync_transforms_main_thread
 }
 
-/// Спавн тестового NPC в ECS world
+/// Компонент-маркер: отложенный спавн NPC
+#[derive(bevy::prelude::Component, Debug)]
+struct SpawnNPCsAfter {
+    spawn_time: f32, // Через сколько секунд спавнить
+}
+
+/// Система: отложенный спавн NPC
+///
+/// Ждёт указанное время и спавнит всех тестовых NPC.
+fn delayed_npc_spawn_system(
+    mut commands: bevy::prelude::Commands,
+    query: bevy::prelude::Query<(bevy::prelude::Entity, &SpawnNPCsAfter)>,
+    time: bevy::prelude::Res<bevy::prelude::Time>,
+) {
+    let elapsed = time.elapsed_secs();
+
+    for (entity, spawn_marker) in query.iter() {
+        if elapsed >= spawn_marker.spawn_time {
+            voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
+
+            // Спавним всех NPC
+            spawn_test_npc(&mut commands, (-25.0, 0.5, 0.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-16.0, 0.5, 2.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-18.0, 0.5, 0.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-5.0, 0.5, 2.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-7.0, 0.5, 0.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-4.0, 0.5, 2.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-5.0, 0.5, 1.0), 1, 100, 1);
+
+            spawn_test_npc(&mut commands, (25.0, 0.5, 0.0), 2, 100, 1);
+            spawn_test_npc(&mut commands, (3.0, 0.5, 2.0), 2, 80, 2);
+            spawn_test_npc(&mut commands, (5.0, 0.5, 0.0), 2, 100, 1);
+            spawn_test_npc(&mut commands, (16.0, 0.5, 2.0), 2, 80, 2);
+            spawn_test_npc(&mut commands, (17.0, 0.5, 0.0), 2, 100, 1);
+            spawn_test_npc(&mut commands, (18.0, 0.5, 2.0), 2, 80, 2);
+
+            // Удаляем маркер (spawn уже выполнен)
+            commands.entity(entity).despawn();
+
+            voidrun_simulation::log("✅ NPCs spawned successfully");
+        }
+    }
+}
+
+/// Спавн тестового NPC в ECS world (ADR-005: StrategicPosition + PrefabPath)
 fn spawn_test_npc(
-    world: &mut bevy::prelude::World,
-    position: (f32, f32, f32),
+    commands: &mut bevy::prelude::Commands,
+    position: (f32, f32, f32), // World position (будет конвертирован в StrategicPosition)
     faction_id: u64,
     max_hp: u32,
     damage: u32,
 ) -> bevy::prelude::Entity {
-    use bevy::prelude::{Transform as BevyTransform, Vec3};
+    use bevy::prelude::Vec3;
 
-    let mut commands = world.commands();
+    let world_pos = Vec3::new(position.0, position.1, position.2);
+    let strategic_pos = StrategicPosition::from_world_position(world_pos);
 
     commands.spawn((
         Actor { faction_id },
-        BevyTransform::from_translation(Vec3::new(position.0, position.1, position.2)),
+        strategic_pos, // StrategicPosition (sync_strategic_position_from_godot обновит из Godot)
+        PrefabPath::new("res://actors/test_actor.tscn"), // Data-driven prefab path
         Health {
             current: max_hp,
             max: max_hp,
@@ -398,6 +435,7 @@ fn spawn_test_npc(
         },
         Weapon::default(), // Weapon system (pistol)
         MovementCommand::Idle, // Godot будет читать и выполнять
+        NavigationState::default(), // Трекинг достижения navigation target (для PositionChanged events)
         AIState::Idle,
         AIConfig {
             retreat_stamina_threshold: 0.2,  // Retreat при stamina < 20%
@@ -417,11 +455,28 @@ fn spawn_test_npc(
 struct GodotLogger;
 
 impl LogPrinter for GodotLogger {
-    fn log(&self, message: &str) {
-        use std::io::Write;
+    fn log(&self, level: LogLevel, message: &str) {
+        if level >= *voidrun_simulation::LOGGER_LEVEL.lock().unwrap() {
+            self._log_message(level, message);
+        }
+    }
+}
 
-        // Пишем в Godot console (с timestamp для читаемости)
-        godot_print!("{}", message);
+impl GodotLogger {
+    fn clear_log_file() {
+        let log_path = std::path::Path::new("../logs/game.log");
+        if let Some(_parent) = log_path.parent() {
+            let _ = std::fs::remove_file(log_path);
+        }
+    }
+
+    fn _log_message(&self, level: LogLevel, message: &str) {
+        use std::io::Write;
+        if level == LogLevel::Error {
+            godot_error!("[{}] {}", level.as_str(), message);
+        } else {
+            godot_print!("[{}] {}", level.as_str(), message);
+        }
 
         // Пишем в файл logs/game.log (append mode)
         // Godot запускается из godot/ директории, поэтому путь относительно project root
@@ -450,15 +505,6 @@ impl LogPrinter for GodotLogger {
                     }
                 }
             }
-        }
-    }
-}
-
-impl GodotLogger {
-    fn clear_log_file() {
-        let log_path = std::path::Path::new("../logs/game.log");
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::remove_file(log_path);
         }
     }
 }

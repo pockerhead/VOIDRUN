@@ -24,6 +24,10 @@ pub struct Weapon {
 
     /// Скорость пули (м/с)
     pub projectile_speed: f32,
+
+    /// Радиус слышимости выстрела (метры)
+    /// Все актёры в этом радиусе слышат звук и реагируют
+    pub hearing_range: f32,
 }
 
 impl Default for Weapon {
@@ -34,6 +38,7 @@ impl Default for Weapon {
             cooldown_timer: 0.0,
             range: 20.0,
             projectile_speed: 30.0, // 8 м/с (медленнее для видимости)
+            hearing_range: 100.0, // 25м радиус слышимости для стандартного оружия
         }
     }
 }
@@ -54,9 +59,33 @@ impl Weapon {
 // Godot полностью владеет lifecycle: spawn, physics, collision, cleanup
 // ECS отвечает только за Weapon state и damage calculation
 
-/// Event: Актёр стреляет (ECS → Godot)
-/// ECS (strategic) принимает решение "стрелять в target"
-/// Godot (tactical) рассчитывает точное direction из weapon bone (+Z axis)
+/// Event: Актёр ХОЧЕТ выстрелить (ECS strategic intent)
+/// ECS принимает strategic decision: "cooldown готов, target в Combat state"
+/// Godot validation проверяет tactical constraints: distance, LOS
+#[derive(Event, Debug, Clone)]
+pub struct WeaponFireIntent {
+    /// Кто хочет стрелять
+    pub shooter: Entity,
+
+    /// В кого хочет стрелять
+    pub target: Entity,
+
+    /// Урон (из Weapon component)
+    pub damage: u32,
+
+    /// Скорость пули (из Weapon component)
+    pub speed: f32,
+
+    /// Max range (из Weapon component)
+    pub max_range: f32,
+
+    /// Радиус слышимости выстрела (для AI reaction)
+    pub hearing_range: f32,
+}
+
+/// Event: Актёр стреляет (ECS → Godot, после validation)
+/// Godot tactical layer проверил distance/LOS и разрешил выстрел
+/// Godot рассчитывает точное direction из weapon bone (+Z axis)
 #[derive(Event, Debug, Clone)]
 pub struct WeaponFired {
     /// Кто стреляет
@@ -70,6 +99,12 @@ pub struct WeaponFired {
 
     /// Скорость пули
     pub speed: f32,
+
+    /// Позиция стрелявшего (Godot Transform, для AI sound reaction)
+    pub shooter_position: Vec3,
+
+    /// Радиус слышимости выстрела (для AI reaction)
+    pub hearing_range: f32,
 }
 
 /// Event: Projectile попал в цель (Godot → ECS)
@@ -97,47 +132,50 @@ pub fn update_weapon_cooldowns(
     }
 }
 
-/// System: AI weapon fire logic
-/// Если актёр в Combat state и weapon ready → fire
-pub fn ai_weapon_fire(
-    mut actors: Query<(Entity, &crate::ai::AIState, &Transform, &mut Weapon)>,
-    targets: Query<&Transform>,
-    mut fire_events: EventWriter<WeaponFired>,
+/// System: AI weapon fire intent (ECS strategic decision)
+///
+/// Архитектура (Hybrid Intent-based):
+/// 1. ECS (strategic): Проверяет cooldown + AI state → генерирует WeaponFireIntent
+/// 2. Godot (tactical): Проверяет distance/LOS → конвертирует Intent → WeaponFired
+///
+/// Почему так:
+/// - ECS не знает точных Godot positions (только chunk-based StrategicPosition)
+/// - Godot authoritative для tactical validation (distance, line of sight)
+/// - Разделение ответственности: strategic intent vs tactical execution
+pub fn ai_weapon_fire_intent(
+    mut actors: Query<(Entity, &crate::ai::AIState, &mut Weapon)>,
+    mut intent_events: EventWriter<WeaponFireIntent>,
 ) {
     use crate::ai::AIState;
 
-    for (entity, state, transform, mut weapon) in actors.iter_mut() {
-        // Стреляем только в Combat state (Dead не стреляет)
-        if let AIState::Combat { target } = state {
-            // Проверяем cooldown
-            if !weapon.can_fire() {
-                continue;
-            }
+    for (entity, state, mut weapon) in actors.iter_mut() {
+        // Стреляем только в Combat state
+        let AIState::Combat { target } = state else {
+            continue;
+        };
 
-            // Проверяем дистанцию
-            if let Ok(target_transform) = targets.get(*target) {
-                let to_target = target_transform.translation - transform.translation;
-                let distance = to_target.length();
-
-                if distance <= weapon.range && distance > 0.01 {
-                    // Генерируем событие выстрела (Godot рассчитает direction из weapon bone)
-                    fire_events.write(WeaponFired {
-                        shooter: entity,
-                        target: *target,
-                        damage: weapon.damage,
-                        speed: weapon.projectile_speed,
-                    });
-
-                    // Начинаем cooldown
-                    weapon.start_cooldown();
-
-                    crate::log(&format!(
-                        "Actor {:?} fires weapon at {:?} (distance: {:.1}m)",
-                        entity, target, distance
-                    ));
-                }
-            }
+        // Проверяем cooldown (strategic constraint)
+        if !weapon.can_fire() {
+            continue;
         }
+
+        // Генерируем intent (Godot проверит distance/LOS)
+        intent_events.write(WeaponFireIntent {
+            shooter: entity,
+            target: *target,
+            damage: weapon.damage,
+            speed: weapon.projectile_speed,
+            max_range: weapon.range,
+            hearing_range: weapon.hearing_range,
+        });
+
+        // Начинаем cooldown (ECS владеет cooldown state)
+        weapon.start_cooldown();
+
+        crate::log(&format!(
+            "Actor {:?} wants to fire at {:?} (intent generated)",
+            entity, target
+        ));
     }
 }
 

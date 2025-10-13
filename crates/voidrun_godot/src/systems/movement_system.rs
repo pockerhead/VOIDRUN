@@ -20,7 +20,7 @@ use godot::classes::{
     BoxMesh, CharacterBody3D, Material, MeshInstance3D, NavigationAgent3D, StandardMaterial3D,
 };
 use godot::prelude::*;
-use voidrun_simulation::MovementCommand;
+use voidrun_simulation::{MovementCommand, NavigationState};
 
 /// Debug: создаёт красный box marker в указанной позиции
 fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
@@ -42,13 +42,16 @@ fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
 
 /// Обработка MovementCommand → NavigationAgent3D target
 ///
-/// КРИТИЧНО: set_target_position() вызывается КАЖДЫЙ ФРЕЙМ (не только Changed<>)
-/// NavigationAgent3D требует постоянного обновления target для корректного pathfinding.
+/// КРИТИЧНО: set_target_position() вызывается при Changed<MovementCommand>
+/// NavigationState.is_target_reached сбрасывается при новом MovementCommand.
 pub fn process_movement_commands_main_thread(
-    query: Query<(Entity, &MovementCommand), Changed<MovementCommand>>, // Убрали Changed<MovementCommand>
+    mut query: Query<
+        (Entity, &MovementCommand, &mut NavigationState, Option<&voidrun_simulation::combat::Weapon>),
+        Changed<MovementCommand>,
+    >,
     visuals: NonSend<VisualRegistry>,
 ) {
-    for (entity, command) in query.iter() {
+    for (entity, command, mut nav_state, weapon_opt) in query.iter_mut() {
         let Some(actor_node) = visuals.visuals.get(&entity) else {
             continue;
         };
@@ -61,13 +64,59 @@ pub fn process_movement_commands_main_thread(
 
         match command {
             MovementCommand::Idle => {
+                // Idle — НЕ сбрасываем флаг (сохраняем историю последнего движения)
                 nav_agent.set_target_position(actor_node.get_position());
             }
             MovementCommand::MoveToPosition { target } => {
+                // Новая цель → сбрасываем флаг (нужно заново отправить event при достижении)
+                nav_state.is_target_reached = false;
+
                 let target_vec = Vector3::new(target.x, target.y, target.z);
                 nav_agent.set_target_position(target_vec);
+                nav_agent.set_target_desired_distance(0.1);
+
+                voidrun_simulation::log(&format!(
+                    "Entity {:?}: new MoveToPosition target {:?}, reset reached flag",
+                    entity, target
+                ));
             }
-            _ => {}
+            MovementCommand::FollowEntity { target } => {
+                // Следование за entity → сбрасываем флаг при смене target ИЛИ превышении дистанции
+                // TODO: Вариант B (distance threshold) — требует query target entity position
+                if nav_state.last_follow_target != Some(*target) {
+                    nav_state.is_target_reached = false;
+                    nav_state.last_follow_target = Some(*target);
+
+                    voidrun_simulation::log(&format!(
+                        "Entity {:?}: new FollowEntity target {:?}, reset reached flag",
+                        entity, target
+                    ));
+                }
+
+                let Some(target_node) = visuals.visuals.get(target) else {
+                    continue;
+                };
+
+                let target_pos = target_node.get_position();
+                nav_agent.set_target_position(target_pos);
+
+                // Ranged combat: останавливаемся на расстоянии weapon range
+                // Берём weapon.range из ECS компонента или fallback 15.0м
+                const STOP_BUFFER: f32 = 2.0; // Буфер безопасности (не подходим вплотную)
+                let weapon_range = weapon_opt.map(|w| w.range).unwrap_or(15.0);
+                let stop_distance = (weapon_range - STOP_BUFFER).max(0.5); // Минимум 0.5м
+
+                nav_agent.set_target_desired_distance(stop_distance);
+
+                voidrun_simulation::log(&format!(
+                    "Entity {:?}: new FollowEntity movement to position {:?} (stop at {:.1}m, weapon_range: {:.1}m)",
+                    entity, target_pos, stop_distance, weapon_range
+                ));
+            }
+            MovementCommand::Stop => {
+                // Stop — НЕ сбрасываем флаг (останавливаемся, но сохраняем историю)
+                nav_agent.set_target_position(actor_node.get_position());
+            }
         }
     }
 }
@@ -76,17 +125,20 @@ pub fn process_movement_commands_main_thread(
 ///
 /// Берём get_next_path_position() от NavigationAgent и применяем velocity.
 /// Avoidance отключён — простой pathfinding для single-player game.
+/// ADR-005: Отправляем GodotTransformEvent::PositionChanged после move_and_slide
+///
+/// NavigationState используется для one-time PositionChanged event (избегаем спама).
 pub fn apply_navigation_velocity_main_thread(
-    query: Query<(Entity, &voidrun_simulation::ai::AIState), With<voidrun_simulation::Actor>>,
+    mut query: Query<
+        (Entity, &voidrun_simulation::ai::AIState, &mut NavigationState),
+        With<voidrun_simulation::Actor>,
+    >,
     visuals: NonSend<VisualRegistry>,
+    mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
     const MOVE_SPEED: f32 = 5.0; // метры в секунду
 
-    for (entity, state) in query.iter() {
-        if let voidrun_simulation::ai::AIState::Combat { target } = state {
-            continue;
-        }
-
+    for (entity, _state, mut nav_state) in query.iter_mut() {
         // actor_node теперь САМ CharacterBody3D (root node из TSCN)
         let Some(actor_node) = visuals.visuals.get(&entity).cloned() else {
             continue;
@@ -95,8 +147,7 @@ pub fn apply_navigation_velocity_main_thread(
         // Cast root node к CharacterBody3D
         let mut body = actor_node.cast::<CharacterBody3D>();
 
-        let Some(mut nav_agent) =
-            body.try_get_node_as::<NavigationAgent3D>("NavigationAgent3D")
+        let Some(mut nav_agent) = body.try_get_node_as::<NavigationAgent3D>("NavigationAgent3D")
         else {
             continue;
         };
@@ -107,6 +158,7 @@ pub fn apply_navigation_velocity_main_thread(
             // Нет валидного пути — стоим на месте
             nav_agent.set_velocity(Vector3::ZERO);
             body.set_velocity(Vector3::ZERO);
+            // TODO: send event чтобы AI:State перешел в Idle
             continue;
         }
 
@@ -115,6 +167,23 @@ pub fn apply_navigation_velocity_main_thread(
             log_every_10_frames(&format!("[Movement] target reached"));
             nav_agent.set_velocity(Vector3::ZERO);
             body.set_velocity(Vector3::ZERO);
+
+            // ✅ Отправляем PositionChanged event только ОДИН РАЗ при достижении
+            // Используем NavigationState.is_target_reached флаг (избегаем спама)
+            if !nav_state.is_target_reached {
+                nav_state.is_target_reached = true;
+                let current_pos = body.get_position();
+                transform_events.write(
+                    voidrun_simulation::ai::GodotTransformEvent::PositionChanged {
+                        entity,
+                        position: Vec3::new(current_pos.x, current_pos.y, current_pos.z),
+                    },
+                );
+                voidrun_simulation::log(&format!(
+                    "Entity {:?}: navigation target reached (one-time event sent)",
+                    entity
+                ));
+            }
             continue;
         }
 
@@ -145,7 +214,7 @@ pub fn apply_navigation_velocity_main_thread(
         // Вычисляем velocity в м/с (как enemy.gd line 37)
         let velocity = Vector3::new(
             local_direction.x * MOVE_SPEED,
-            body.get_velocity().y,  // Сохраняем Y (гравитация)
+            body.get_velocity().y, // Сохраняем Y (гравитация)
             local_direction.z * MOVE_SPEED,
         );
         let look_at_pos = Vector3::new(next_pos.x, body.get_position().y, next_pos.z);

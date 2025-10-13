@@ -21,9 +21,9 @@ pub mod weapon;
 
 // Re-export основных типов
 pub use attacker::{Attacker, tick_attack_cooldowns};
-pub use damage::{DamageDealt, EntityDied, Dead, calculate_damage};
+pub use damage::{DamageDealt, EntityDied, Dead, DespawnAfter, calculate_damage};
 pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
-pub use weapon::{Weapon, WeaponFired, ProjectileHit};
+pub use weapon::{Weapon, WeaponFired, WeaponFireIntent, ProjectileHit};
 
 /// Combat Plugin (Godot-driven architecture)
 ///
@@ -44,6 +44,7 @@ impl Plugin for CombatPlugin {
         // Регистрация событий
         app.add_event::<DamageDealt>()
             .add_event::<EntityDied>()
+            .add_event::<WeaponFireIntent>()
             .add_event::<WeaponFired>()
             .add_event::<ProjectileHit>();
 
@@ -55,8 +56,9 @@ impl Plugin for CombatPlugin {
                 tick_attack_cooldowns,
                 weapon::update_weapon_cooldowns,
 
-                // Фаза 2: Weapon fire logic (AI)
-                weapon::ai_weapon_fire,
+                // Фаза 2: Weapon fire intent (ECS strategic decision)
+                // Godot tactical validation в process_weapon_fire_intents_main_thread
+                weapon::ai_weapon_fire_intent,
 
                 // Фаза 3: Damage application (from Godot events + projectiles)
                 damage::apply_damage,
@@ -64,6 +66,7 @@ impl Plugin for CombatPlugin {
 
                 // Фаза 4: Death handling
                 damage::disable_ai_on_death,
+                damage::despawn_after_timeout,
 
                 // Фаза 5: Stamina management
                 stamina::regenerate_stamina,

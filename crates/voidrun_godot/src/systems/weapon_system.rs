@@ -9,53 +9,128 @@ use bevy::prelude::*;
 use godot::prelude::*;
 use godot::classes::{Node3D, SphereMesh, StandardMaterial3D, Mesh, Material, CollisionShape3D, SphereShape3D, Node, ICharacterBody3D};
 use voidrun_simulation::*;
-use voidrun_simulation::combat::WeaponFired;
+use voidrun_simulation::combat::{WeaponFired, WeaponFireIntent};
 use crate::systems::VisualRegistry;
 
 /// System: Aim weapon at target (RightHand rotation)
 /// Если актёр в Combat state → поворачиваем руку к target
+///
+/// ВАЖНО: Использует Godot Transform из VisualRegistry (не ECS Transform!)
 pub fn weapon_aim_main_thread(
-    actors: Query<(Entity, &ai::AIState, &Transform), With<Actor>>,
-    targets: Query<&Transform>,
+    actors: Query<(Entity, &ai::AIState), With<Actor>>,
     visuals: NonSend<VisualRegistry>,
 ) {
-    for (entity, state, transform) in actors.iter() {
+    for (entity, state) in actors.iter() {
         // Целимся только в Combat state
         if let ai::AIState::Combat { target } = state {
+            // Получаем actor node (shooter)
+            let Some(mut actor_node) = visuals.visuals.get(&entity).cloned() else {
+                continue;
+            };
 
-            if let Ok(target_transform) = targets.get(*target) {
-                // Направление к target
-                let to_target = target_transform.translation - transform.translation;
+            // Получаем target node (НЕ ECS Transform — Godot Transform!)
+            let Some(target_node) = visuals.visuals.get(target).cloned() else {
+                continue;
+            };
 
-                if to_target.length() > 0.01 {
-                    // Получаем actor node
-                    if let Some(mut actor_node) = visuals.visuals.get(&entity).cloned() {
-                        let target_pos = Vector3::new(
-                            target_transform.translation.x,
-                            target_transform.translation.y,
-                            target_transform.translation.z,
-                        );
+            // Godot positions (tactical layer — authoritative для aim)
+            let target_pos = target_node.get_global_position();
+            let actor_pos = actor_node.get_global_position();
+            let to_target = target_pos - actor_pos;
 
-                        // Поворачиваем весь actor body к target
-                        actor_node.look_at(target_pos);
+            if to_target.length() > 0.01 {
+                // Поворачиваем весь actor body к target
+                actor_node.look_at(target_pos);
 
-                        // Дополнительно поворачиваем RightHand (оружие) к target для точного прицеливания
-                        if let Some(mut right_hand) = actor_node.try_get_node_as::<Node3D>("RightHand") {
-                            right_hand.look_at(target_pos);
-                        }
-                    }
+                // Дополнительно поворачиваем RightHand (оружие) к target для точного прицеливания
+                if let Some(mut right_hand) = actor_node.try_get_node_as::<Node3D>("RightHand") {
+                    right_hand.look_at(target_pos);
                 }
             }
         }
     }
 }
 
+/// System: Process WeaponFireIntent → validate distance/LOS → generate WeaponFired
+///
+/// Архитектура (Hybrid Intent-based):
+/// - ECS отправил WeaponFireIntent (strategic: "хочу стрелять")
+/// - Godot проверяет tactical constraints (distance, line of sight)
+/// - Если OK → генерирует WeaponFired для spawn projectile
+///
+/// ВАЖНО: Использует Godot Transform из VisualRegistry (authoritative!)
+pub fn process_weapon_fire_intents_main_thread(
+    mut intent_events: EventReader<WeaponFireIntent>,
+    visuals: NonSend<VisualRegistry>,
+    mut fire_events: EventWriter<WeaponFired>,
+) {
+    for intent in intent_events.read() {
+        // Получаем shooter node
+        let Some(shooter_node) = visuals.visuals.get(&intent.shooter).cloned() else {
+            voidrun_simulation::log(&format!(
+                "Weapon intent rejected: shooter {:?} visual not found",
+                intent.shooter
+            ));
+            continue;
+        };
+
+        // Получаем target node
+        let Some(target_node) = visuals.visuals.get(&intent.target).cloned() else {
+            voidrun_simulation::log(&format!(
+                "Weapon intent rejected: target {:?} visual not found",
+                intent.target
+            ));
+            continue;
+        };
+
+        // ✅ Tactical validation: distance check (Godot Transform authoritative)
+        let shooter_pos = shooter_node.get_global_position();
+        let target_pos = target_node.get_global_position();
+        let distance = (target_pos - shooter_pos).length();
+
+        if distance > intent.max_range {
+            voidrun_simulation::log(&format!(
+                "Weapon intent rejected: distance {:.1}m > max_range {:.1}m (shooter {:?} → target {:?})",
+                distance, intent.max_range, intent.shooter, intent.target
+            ));
+            continue;
+        }
+
+        if distance < 0.5 {
+            voidrun_simulation::log(&format!(
+                "Weapon intent rejected: too close {:.1}m (shooter {:?} → target {:?})",
+                distance, intent.shooter, intent.target
+            ));
+            continue;
+        }
+
+        // TODO: Line of sight check (raycast от shooter к target)
+        // if !has_line_of_sight(shooter_pos, target_pos, world) { continue; }
+
+        // ✅ Tactical validation passed → генерируем WeaponFired
+        fire_events.write(WeaponFired {
+            shooter: intent.shooter,
+            target: intent.target,
+            damage: intent.damage,
+            speed: intent.speed,
+            shooter_position: Vec3::new(shooter_pos.x, shooter_pos.y, shooter_pos.z),  // Godot Vector3 → Bevy Vec3
+            hearing_range: intent.hearing_range,  // Радиус слышимости из оружия
+        });
+
+        voidrun_simulation::log(&format!(
+            "Weapon intent APPROVED: shooter {:?} → target {:?} (distance: {:.1}m)",
+            intent.shooter, intent.target, distance
+        ));
+    }
+}
+
 /// System: Process WeaponFired events → spawn Godot projectile
 /// Создаёт GodotProjectile (полностью Godot-managed, НЕ в ECS)
 /// Direction рассчитывается из weapon bone rotation (+Z forward axis)
+///
+/// ВАЖНО: Fallback direction использует Godot Transform из VisualRegistry!
 pub fn weapon_fire_main_thread(
     mut fire_events: EventReader<WeaponFired>,
-    targets: Query<&Transform>,
     visuals: NonSend<VisualRegistry>,
     scene_root: NonSend<crate::systems::SceneRoot>,
 ) {
@@ -89,17 +164,13 @@ pub fn weapon_fire_main_thread(
             let global_transform = weapon.get_global_transform();
             global_transform.basis.col_c() // basis.z = forward для нашей модели
         } else {
-            // Fallback: направление от shooter к target (ECS strategic)
-            if let Ok(target_transform) = targets.get(event.target) {
+            // Fallback: направление от shooter к target (Godot Transform — не ECS!)
+            if let Some(target_node) = visuals.visuals.get(&event.target) {
                 let shooter_pos = actor_node.get_global_position();
-                let target_pos = Vector3::new(
-                    target_transform.translation.x,
-                    target_transform.translation.y,
-                    target_transform.translation.z,
-                );
+                let target_pos = target_node.get_global_position();
                 (target_pos - shooter_pos).normalized()
             } else {
-                voidrun_simulation::log("Target not found, using default forward");
+                voidrun_simulation::log("Target visual not found, using default forward");
                 Vector3::new(0.0, 0.0, -1.0) // Default -Z forward
             }
         };

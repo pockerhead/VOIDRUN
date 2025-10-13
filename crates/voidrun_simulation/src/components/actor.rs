@@ -1,17 +1,13 @@
-//! Базовые ECS компоненты для симуляции
-//!
-//! Архитектура: Required Components (Bevy 0.16)
-//! - Actor требует Health + Stamina автоматически
-//! - Все компоненты table storage для детерминизма
+//! Базовые компоненты акторов: Actor, Health, Stamina
 
 use bevy::prelude::*;
 
 /// Актор (NPC, игрок, враг) — базовый компонент для живых существ
 ///
-/// Автоматически добавляет Health и Stamina через Required Components.
+/// Автоматически добавляет Health, Stamina, StrategicPosition, PrefabPath через Required Components.
 #[derive(Component, Debug, Clone, Default, Reflect)]
 #[reflect(Component)]
-#[require(Health, Stamina)]
+#[require(Health, Stamina, crate::components::StrategicPosition, crate::components::PrefabPath)]
 pub struct Actor {
     /// Stable ID фракции (для reputation, diplomacy)
     pub faction_id: u64,
@@ -95,85 +91,6 @@ impl Stamina {
     pub fn regenerate(&mut self, delta_time: f32) {
         self.current = (self.current + self.regen_rate * delta_time).min(self.max);
     }
-}
-
-/// Movement Command — команды движения для Godot
-///
-/// AI systems пишут команды, Godot systems читают и исполняют через CharacterBody3D.
-/// Архитектура: ADR-004 (Command/Event Architecture)
-#[derive(Component, Debug, Clone, Reflect)]
-#[reflect(Component)]
-pub enum MovementCommand {
-    /// Стоять на месте
-    Idle,
-    /// Двигаться к позиции
-    MoveToPosition { target: Vec3 },
-    /// Следовать за entity
-    FollowEntity { target: Entity },
-    /// Остановиться немедленно
-    Stop,
-}
-
-impl Default for MovementCommand {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
-/// Attachment — привязка TSCN prefab к attachment point
-///
-/// Используется для weapons, items, ship modules, vehicle accessories.
-/// Архитектура: ADR-007 (TSCN Prefabs + Dynamic Attachment)
-#[derive(Component, Debug, Clone, Reflect)]
-#[reflect(Component)]
-pub struct Attachment {
-    /// Путь к TSCN prefab (например "res://actors/test_pistol.tscn")
-    pub prefab_path: String,
-
-    /// Attachment point на host prefab (например "RightHand/WeaponAttachment")
-    pub attachment_point: String,
-
-    /// Тип attachment (для logic/UI)
-    pub attachment_type: AttachmentType,
-}
-
-impl Attachment {
-    /// Создать attachment для weapon
-    pub fn weapon(prefab_path: impl Into<String>) -> Self {
-        Self {
-            prefab_path: prefab_path.into(),
-            attachment_point: "RightHand/WeaponAttachment".into(),
-            attachment_type: AttachmentType::Weapon,
-        }
-    }
-
-    /// Создать attachment для item (carried)
-    pub fn item(prefab_path: impl Into<String>) -> Self {
-        Self {
-            prefab_path: prefab_path.into(),
-            attachment_point: "RightHand/ItemAttachment".into(),
-            attachment_type: AttachmentType::Item,
-        }
-    }
-}
-
-/// Attachment type (weapon, item, ship module, etc.)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
-pub enum AttachmentType {
-    Weapon,
-    Item,
-}
-
-/// Marker component: detach specific attachment
-///
-/// Система detach_prefabs_main_thread читает этот компонент → удаляет attachment → removes component.
-/// Позволяет детально управлять detach (например убрать левую руку двуручного оружия, правую оставить).
-/// Архитектура: ADR-007 (TSCN Prefabs + Dynamic Attachment)
-#[derive(Component, Debug, Clone, Reflect)]
-#[reflect(Component)]
-pub struct DetachAttachment {
-    /// Attachment point для detach (например "RightHand/WeaponAttachment")
-    pub attachment_point: String,
 }
 
 #[cfg(test)]

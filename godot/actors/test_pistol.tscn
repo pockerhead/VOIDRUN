@@ -1,4 +1,4 @@
-[gd_scene load_steps=3 format=3 uid="uid://1omaibv2lmqu"]
+[gd_scene load_steps=5 format=3 uid="uid://1omaibv2lmqu"]
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_6kfj7"]
 radius = 0.06
@@ -6,6 +6,14 @@ height = 0.3
 
 [sub_resource type="BoxMesh" id="BoxMesh_6kfj7"]
 size = Vector3(0.04, 0.14, 0.075)
+
+[sub_resource type="BoxMesh" id="BoxMesh_bml87"]
+size = Vector3(0.01, 0.1, 0.02)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_3f0n2"]
+top_radius = 0.03
+bottom_radius = 0.03
+height = 0.068
 
 [node name="Node3D" type="Node3D"]
 
@@ -24,3 +32,19 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.1350438)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.117724, -0.07213485)
 mesh = SubResource("BoxMesh_6kfj7")
 skeleton = NodePath("../..")
+
+[node name="MeshInstance3D3" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.467614e-09, 0.01554592, 0.10829685)
+mesh = SubResource("BoxMesh_bml87")
+
+[node name="MeshInstance3D4" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.011, 0.016, -0.085)
+mesh = SubResource("BoxMesh_bml87")
+
+[node name="MeshInstance3D5" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.010867057, 0.016000003, -0.085)
+mesh = SubResource("BoxMesh_bml87")
+
+[node name="MeshInstance3D6" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, -1.1715693e-08, 0, 0.13401192)
+mesh = SubResource("CylinderMesh_3f0n2")

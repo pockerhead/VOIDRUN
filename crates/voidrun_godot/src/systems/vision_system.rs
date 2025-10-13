@@ -30,55 +30,61 @@ pub fn poll_vision_cones_main_thread(
     mut ai_events: EventWriter<GodotAIEvent>,
 ) {
     for observer in query.iter() {
-        if let Some(observer_node) = visuals.visuals.get(&observer) {
+        let Some(observer_node) = visuals.visuals.get(&observer) else {
+            continue;
+        };
             // Находим VisionCone child
-            if let Some(vision_cone_node) = find_child_by_name(observer_node, "VisionCone") {
-                if let Ok(area) = vision_cone_node.try_cast::<Area3D>() {
-                    // Получаем overlapping bodies (Godot Array)
-                    let overlapping = area.get_overlapping_bodies();
-                    let mut current_spotted = HashSet::new();
+        let Some(vision_cone_node) = find_child_by_name(observer_node, "VisionCone") else {
+            continue;
+        };
+        let Ok(area) = vision_cone_node.try_cast::<Area3D>() else {
+            continue;
+        };
+        // Получаем overlapping bodies (Godot Array)
+        let overlapping = area.get_overlapping_bodies();
+        let mut current_spotted = HashSet::new();
 
-                    // Парсим overlapping bodies → находим entity targets
-                    for i in 0..overlapping.len() {
-                        if let Some(body) = overlapping.get(i) {
-                            let instance_id = body.instance_id();
+        // Парсим overlapping bodies → находим entity targets
+        for i in 0..overlapping.len() {
+            if let Some(body) = overlapping.get(i) {
+                let instance_id = body.instance_id();
 
-                            // Reverse lookup: Godot InstanceId → ECS Entity
-                            if let Some(&target_entity) = visuals.node_to_entity.get(&instance_id) {
-                                // Не считаем себя
-                                if target_entity != observer {
-                                    current_spotted.insert(target_entity);
-                                }
-                            }
-                        }
+                // Reverse lookup: Godot InstanceId → ECS Entity
+                if let Some(&target_entity) = visuals.node_to_entity.get(&instance_id) {
+                    // Не считаем себя
+                    if target_entity != observer {
+                        current_spotted.insert(target_entity);
                     }
-
-                    // Сравниваем с prev state → генерируем events
-                    let prev_spotted = tracking.spotted.entry(observer).or_default().clone();
-
-                    // ActorSpotted: новые targets
-                    for target in current_spotted.difference(&prev_spotted) {
-                        ai_events.write(GodotAIEvent::ActorSpotted {
-                            observer,
-                            target: *target,
-                        });
-                    }
-
-                    // ActorLost: потерянные targets
-                    for target in prev_spotted.difference(&current_spotted) {
-                        ai_events.write(GodotAIEvent::ActorLost {
-                            observer,
-                            target: *target,
-                        });
-                    }
-
-                    // Обновляем tracking state
-                    *tracking.spotted.entry(observer).or_default() = current_spotted;
                 }
             }
         }
+
+        // Сравниваем с prev state → генерируем events
+        let prev_spotted = tracking.spotted.entry(observer).or_default().clone();
+
+        // ActorSpotted: новые targets
+        for target in current_spotted.difference(&prev_spotted) {
+            ai_events.write(GodotAIEvent::ActorSpotted {
+                observer,
+                target: *target,
+            });
+        }
+
+        // ActorLost: потерянные targets
+        for target in prev_spotted.difference(&current_spotted) {
+            ai_events.write(GodotAIEvent::ActorLost {
+                observer,
+                target: *target,
+            });
+        }
+
+        // Обновляем tracking state
+        *tracking.spotted.entry(observer).or_default() = current_spotted;
     }
 }
+
+
+
 
 /// Поиск child node по имени (рекурсивно)
 fn find_child_by_name(parent: &Gd<Node3D>, name: &str) -> Option<Gd<Node>> {

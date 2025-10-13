@@ -38,6 +38,16 @@ pub struct EntityDied {
 #[derive(Component, Debug)]
 pub struct Dead;
 
+/// Компонент-маркер: деспавн entity после указанного времени
+///
+/// Используется для автоматической уборки мёртвых акторов.
+/// Система `despawn_after_timeout` проверяет время и удаляет entity + Godot node.
+#[derive(Component, Debug)]
+pub struct DespawnAfter {
+    /// Время деспавна (в секундах от старта игры)
+    pub despawn_time: f32,
+}
+
 /// Система: apply damage (placeholder для Godot-driven combat)
 ///
 /// TODO: Будет читать GodotCombatEvent::WeaponHit когда Godot integration готов
@@ -108,6 +118,26 @@ pub fn disable_ai_on_death(
             entity_commands.insert(Dead);
 
             crate::log(&format!("INFO: Disabled AI for dead entity {:?}", event.entity));
+        }
+    }
+}
+
+/// Система: деспавн entities с истёкшим DespawnAfter timeout
+///
+/// Проверяет все entities с компонентом DespawnAfter.
+/// Удаляет entity если текущее время >= despawn_time.
+/// Godot node удаляется автоматически в despawn_actor_visuals_main_thread.
+pub fn despawn_after_timeout(
+    mut commands: Commands,
+    query: Query<(Entity, &DespawnAfter)>,
+    time: Res<Time>,
+) {
+    let current_time = time.elapsed_secs();
+
+    for (entity, despawn_after) in query.iter() {
+        if current_time >= despawn_after.despawn_time {
+            crate::log(&format!("⚰️ Despawning entity {:?} (timeout)", entity));
+            commands.entity(entity).despawn();
         }
     }
 }

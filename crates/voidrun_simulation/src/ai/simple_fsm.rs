@@ -94,22 +94,39 @@ impl Default for AIConfig {
 ///
 /// Читает ActorSpotted/ActorLost events → обновляет SpottedEnemies компонент.
 /// Также очищает мёртвые entities из списка (VisionCone не отправляет ActorLost при смерти).
+/// Фильтрация по фракциям: добавляем только врагов (разные faction_id).
 pub fn update_spotted_enemies(
-    mut ai_query: Query<&mut SpottedEnemies>,
+    mut ai_query: Query<(&mut SpottedEnemies, &Actor)>,
     mut ai_events: EventReader<GodotAIEvent>,
+    actors: Query<&Actor>, // Для получения Actor по Entity
     potential_targets: Query<&Health>, // Для проверки что target жив
 ) {
     for event in ai_events.read() {
         match event {
             GodotAIEvent::ActorSpotted { observer, target } => {
-                if let Ok(mut spotted) = ai_query.get_mut(*observer) {
-                    if !spotted.enemies.contains(target) {
-                        spotted.enemies.push(*target);
-                    }
+                // Получаем observer actor
+                let Ok((mut spotted, observer_actor)) = ai_query.get_mut(*observer) else {
+                    continue;
+                };
+
+                // Получаем target actor через Query::get (O(1) lookup)
+                let Ok(target_actor) = actors.get(*target) else {
+                    continue;
+                };
+
+                // Проверяем фракции: добавляем только врагов
+                if observer_actor.faction_id == target_actor.faction_id {
+                    // Союзник — игнорируем
+                    continue;
+                }
+
+                // Враг — добавляем в список
+                if !spotted.enemies.contains(target) {
+                    spotted.enemies.push(*target);
                 }
             }
             GodotAIEvent::ActorLost { observer, target } => {
-                if let Ok(mut spotted) = ai_query.get_mut(*observer) {
+                if let Ok((mut spotted, _)) = ai_query.get_mut(*observer) {
                     spotted.enemies.retain(|&e| e != *target);
                 }
             }
@@ -117,7 +134,7 @@ pub fn update_spotted_enemies(
     }
 
     // Очищаем мёртвые entities из всех SpottedEnemies
-    for mut spotted in ai_query.iter_mut() {
+    for (mut spotted, _) in ai_query.iter_mut() {
         let initial_count = spotted.enemies.len();
         spotted.enemies.retain(|&e| {
             potential_targets
@@ -140,6 +157,8 @@ pub fn update_spotted_enemies(
 /// 1. Retreat (если low health/stamina)
 /// 2. Combat (если есть spotted enemies)
 /// 3. Patrol (если никого не видим)
+///
+/// ADR-005: Использует StrategicPosition для AI decisions (не Godot Transform)
 pub fn ai_fsm_transitions(
     mut ai_query: Query<(
         Entity,
@@ -148,14 +167,14 @@ pub fn ai_fsm_transitions(
         &AIConfig,
         &Health,
         &Stamina,
-        &Transform,
+        &crate::StrategicPosition,
     )>,
     potential_targets: Query<&Health>, // Для проверки что target жив
     time: Res<Time<Fixed>>,
 ) {
     let delta = time.delta_secs();
 
-    for (entity, mut state, spotted, config, health, stamina, transform) in ai_query.iter_mut() {
+    for (entity, mut state, spotted, config, health, stamina, strategic_pos) in ai_query.iter_mut() {
         let stamina_percent = stamina.current / stamina.max;
         let health_percent = health.current as f32 / health.max as f32;
 
@@ -203,15 +222,18 @@ pub fn ai_fsm_transitions(
                     // Продолжаем патруль, обновляем таймер
                     let new_timer = (*next_direction_timer - delta).max(0.0);
 
-                    // Если таймер истёк → генерируем новую patrol точку
+                    // Если таймер истёк → генерируем новую patrol точку (используем StrategicPosition)
                     let new_target = if new_timer <= 0.0 {
                         use rand::Rng;
                         let mut rng = rand::thread_rng();
 
                         let angle = rng.gen::<f32>() * std::f32::consts::TAU;
-                        let distance = 5.0 + rng.gen::<f32>() * 100.0; // 5-15м radius
+                        let distance = 5.0 + rng.gen::<f32>() * 10.0; // 5-15м radius
+
+                        // Генерируем от текущей strategic position
+                        let current_world_pos = strategic_pos.to_world_position(0.5);
                         let offset = Vec3::new(angle.cos() * distance, 0.0, angle.sin() * distance);
-                        let patrol_target = transform.translation + offset;
+                        let patrol_target = current_world_pos + offset;
 
                         Some(patrol_target)
                     } else {
@@ -300,11 +322,12 @@ pub fn ai_fsm_transitions(
 /// Система: AI movement from state
 ///
 /// Конвертирует AIState → MovementCommand для Godot.
+/// ADR-005: Используем StrategicPosition для AI decisions
 pub fn ai_movement_from_state(
-    mut ai_query: Query<(&AIState, &mut MovementCommand, &Transform)>,
-    targets_query: Query<&Transform>,
+    mut ai_query: Query<(&AIState, &mut MovementCommand, &crate::StrategicPosition)>,
+    targets_query: Query<&crate::StrategicPosition>,
 ) {
-    for (state, mut command, transform) in ai_query.iter_mut() {
+    for (state, mut command, strategic_pos) in ai_query.iter_mut() {
         match state {
             AIState::Dead => {
                 // Dead — не двигаемся
@@ -337,42 +360,48 @@ pub fn ai_movement_from_state(
             }
 
             AIState::Combat { target } => {
-                // Двигаемся к target (каждый frame обновляем, target движется!)
-                if let Ok(target_transform) = targets_query.get(*target) {
-                    let target_pos = target_transform.translation;
-                    // Combat: target двигается → обновляем каждый frame
-                    // НЕ проверяем matches, потому что позиция меняется
-                    *command = MovementCommand::MoveToPosition {
-                        target: target_pos,
+                // Следуем за target (FollowEntity для динамического преследования)
+                if !matches!(*command, MovementCommand::FollowEntity { target: t } if t == *target) {
+                    *command = MovementCommand::FollowEntity {
+                        target: *target,
                     };
-                } else {
-                    if !matches!(*command, MovementCommand::Idle) {
-                        *command = MovementCommand::Idle;
-                    }
                 }
             }
 
             AIState::Retreat { from_target, .. } => {
                 // Отступаем от target (противоположное направление)
-                if let Some(target_entity) = from_target {
-                    if let Ok(target_transform) = targets_query.get(*target_entity) {
-                        let to_target = target_transform.translation - transform.translation;
-                        let retreat_direction = -to_target.normalize();
-                        let retreat_position = transform.translation + retreat_direction * 5.0; // 5 метров назад
-
-                        // Retreat: target двигается → обновляем каждый frame
-                        *command = MovementCommand::MoveToPosition {
-                            target: retreat_position,
-                        };
-                    } else {
-                        if !matches!(*command, MovementCommand::Idle) {
-                            *command = MovementCommand::Idle;
-                        }
-                    }
-                } else {
+                let Some(target_entity) = from_target else {
                     if !matches!(*command, MovementCommand::Idle) {
                         *command = MovementCommand::Idle;
                     }
+                    continue;
+                };
+
+                let Ok(target_strategic_pos) = targets_query.get(*target_entity) else {
+                    if !matches!(*command, MovementCommand::Idle) {
+                        *command = MovementCommand::Idle;
+                    }
+                    continue;
+                };
+
+                let current_world_pos = strategic_pos.to_world_position(0.5);
+                let target_world_pos = target_strategic_pos.to_world_position(0.5);
+                let to_target = target_world_pos - current_world_pos;
+                let retreat_direction = -to_target.normalize();
+                let retreat_position = current_world_pos + retreat_direction * 5.0; // 5 метров назад
+
+                // ✅ Проверяем что retreat position изменилась (избегаем спама)
+                const MIN_MOVE_THRESHOLD: f32 = 0.1; // 10 см
+                let should_update = if let MovementCommand::MoveToPosition { target: current } = *command {
+                    (retreat_position - current).length() > MIN_MOVE_THRESHOLD
+                } else {
+                    true
+                };
+
+                if should_update {
+                    *command = MovementCommand::MoveToPosition {
+                        target: retreat_position,
+                    };
                 }
             }
         }
@@ -382,37 +411,44 @@ pub fn ai_movement_from_state(
 /// Система: AI attack execution
 ///
 /// Генерирует атаки когда в Combat state и target в радиусе.
+/// ADR-005: Используем StrategicPosition для distance checks
 pub fn ai_attack_execution(
-    mut ai_query: Query<(&AIState, &Transform, &mut Attacker, &Stamina)>,
-    targets_query: Query<&Transform>,
+    mut ai_query: Query<(&AIState, &crate::StrategicPosition, &mut Attacker, &Stamina)>,
+    targets_query: Query<&crate::StrategicPosition>,
     time: Res<Time<Fixed>>,
 ) {
     let delta = time.delta_secs();
 
-    for (state, transform, mut attacker, stamina) in ai_query.iter_mut() {
+    for (state, strategic_pos, mut attacker, stamina) in ai_query.iter_mut() {
         // Обновляем cooldown
         if attacker.cooldown_timer > 0.0 {
             attacker.cooldown_timer -= delta;
         }
 
         // Атакуем только в Combat state
-        if let AIState::Combat { target } = state {
-            if let Ok(target_transform) = targets_query.get(*target) {
-                let distance = transform.translation.distance(target_transform.translation);
+        let AIState::Combat { target } = state else {
+            continue;
+        };
 
-                // Проверяем: в радиусе, cooldown готов, есть stamina
-                const ATTACK_COST: f32 = 20.0;
-                if distance <= attacker.attack_radius
-                    && attacker.cooldown_timer <= 0.0
-                    && stamina.current >= ATTACK_COST
-                {
-                    // Атака происходит через старую систему (combat systems обрабатывают)
-                    // Просто сбрасываем cooldown
-                    attacker.cooldown_timer = attacker.attack_cooldown;
+        let Ok(target_strategic_pos) = targets_query.get(*target) else {
+            continue;
+        };
 
-                    crate::log(&format!("AI: attacking target {:?}", target));
-                }
-            }
+        let current_world_pos = strategic_pos.to_world_position(0.5);
+        let target_world_pos = target_strategic_pos.to_world_position(0.5);
+        let distance = current_world_pos.distance(target_world_pos);
+
+        // Проверяем: в радиусе, cooldown готов, есть stamina
+        const ATTACK_COST: f32 = 20.0;
+        if distance <= attacker.attack_radius
+            && attacker.cooldown_timer <= 0.0
+            && stamina.current >= ATTACK_COST
+        {
+            // Атака происходит через старую систему (combat systems обрабатывают)
+            // Просто сбрасываем cooldown
+            attacker.cooldown_timer = attacker.attack_cooldown;
+
+            crate::log(&format!("AI: attacking target {:?}", target));
         }
     }
 }
@@ -420,23 +456,25 @@ pub fn ai_attack_execution(
 /// Система: collision resolution (отталкивание NPC друг от друга)
 ///
 /// Предотвращает стэкинг actors на одной точке.
+/// ADR-005: Используем StrategicPosition, Godot обновит визуалы через PostSpawn
 pub fn simple_collision_resolution(
-    mut actors: Query<(&mut Transform, Entity), With<Actor>>,
+    mut actors: Query<(&mut crate::StrategicPosition, Entity), With<Actor>>,
 ) {
     let positions: Vec<(Entity, Vec3)> = actors
         .iter()
-        .map(|(t, e)| (e, t.translation))
+        .map(|(sp, e)| (e, sp.to_world_position(0.5)))
         .collect();
 
-    for (mut transform, entity) in actors.iter_mut() {
+    for (mut strategic_pos, entity) in actors.iter_mut() {
         let mut push = Vec3::ZERO;
+        let current_pos = strategic_pos.to_world_position(0.5);
 
         for &(other_entity, other_pos) in &positions {
             if other_entity == entity {
                 continue;
             }
 
-            let diff = transform.translation - other_pos;
+            let diff = current_pos - other_pos;
             let distance = diff.length();
 
             // Минимальная дистанция между actors
@@ -448,7 +486,11 @@ pub fn simple_collision_resolution(
             }
         }
 
-        transform.translation += push;
+        // Применяем push к StrategicPosition
+        if push.length() > 0.001 {
+            let new_pos = current_pos + push;
+            *strategic_pos = crate::StrategicPosition::from_world_position(new_pos);
+        }
     }
 }
 
@@ -462,6 +504,84 @@ pub fn handle_actor_death(
         if health.current == 0 && !matches!(*state, AIState::Dead) {
             *state = AIState::Dead;
             crate::log("Actor died → AI disabled (Dead state)");
+        }
+    }
+}
+
+/// System: AI реакция на звук выстрела
+///
+/// Архитектура:
+/// - Слушает WeaponFired события (содержат shooter_position + hearing_range)
+/// - Проверяет расстояние через StrategicPosition (chunk-aware distance)
+/// - Генерирует ActorSpotted event для имитации "услышал стрелявшего"
+/// - Устанавливает MovementCommand в сторону выстрела с разбросом 3м
+///
+/// Логика:
+/// - Все актёры в радиусе слышат выстрел (союзники, враги, нейтралы)
+/// - Skip: сам стрелявший, актёры уже в Combat (сосредоточены на своей цели)
+/// - Радиус слышимости зависит от оружия (pistol ~25м, rifle ~40м, sniper ~60м)
+pub fn ai_react_to_gunfire(
+    mut gunfire_events: EventReader<crate::combat::WeaponFired>,
+    mut actors: Query<(Entity, &Actor, &crate::StrategicPosition, &AIState, &mut MovementCommand)>,
+    mut spotted_events: EventWriter<GodotAIEvent>,
+) {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    for fire_event in gunfire_events.read() {
+        // Конвертируем world position → StrategicPosition для distance check
+        let shooter_strategic = crate::StrategicPosition::from_world_position(
+            fire_event.shooter_position
+        );
+
+        for (listener_entity, _listener_actor, listener_pos, ai_state, mut command) in actors.iter_mut() {
+            // Skip: сам стрелявший
+            if listener_entity == fire_event.shooter {
+                continue;
+            }
+
+            // Skip: уже в Combat (сосредоточен на своей цели, не отвлекается)
+            if matches!(ai_state, AIState::Combat { .. }) {
+                continue;
+            }
+
+            // Проверка расстояния (chunk-aware distance через world positions)
+            let listener_world_pos = listener_pos.to_world_position(0.5);
+            let shooter_world_pos = shooter_strategic.to_world_position(0.5);
+            let distance = listener_world_pos.distance(shooter_world_pos);
+
+            if distance > fire_event.hearing_range {
+                continue;
+            }
+
+            // ✅ Услышал выстрел!
+            crate::log(&format!(
+                "🔊 Entity {:?} heard gunfire from {:?} at distance {:.1}m (range: {:.1}m)",
+                listener_entity, fire_event.shooter, distance, fire_event.hearing_range
+            ));
+
+            // Генерируем ActorSpotted (имитация "услышал и заметил стрелявшего")
+            spotted_events.write(GodotAIEvent::ActorSpotted {
+                observer: listener_entity,
+                target: fire_event.shooter,
+            });
+
+            // Идём в сторону выстрела с разбросом 3м (неуверенность в точной позиции)
+            let random_offset = Vec3::new(
+                rng.gen_range(-1.0..1.0), // -1..1
+                0.0,
+                rng.gen_range(-1.0..1.0),
+            ) * 3.0; // 3м разброс
+
+            let investigate_pos = fire_event.shooter_position + random_offset;
+            *command = MovementCommand::MoveToPosition {
+                target: investigate_pos,
+            };
+
+            crate::log(&format!(
+                "  → Entity {:?} moving to investigate gunfire at {:?}",
+                listener_entity, investigate_pos
+            ));
         }
     }
 }
