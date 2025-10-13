@@ -148,6 +148,7 @@ godot_print!("message");  // Только для godot-специфичных в
 
 **Design Docs (геймплей, лор, механики):**
 - [docs/design/shield-technology.md](docs/design/shield-technology.md) — Технология щитов (почему ranged + melee сосуществуют)
+- [docs/design/camera-system-vats.md](docs/design/camera-system-vats.md) — Камерная система + VATS (first-person + tactical moments)
 
 **ADRs (Architecture Decision Records):**
 - ADR-002: Godot-Rust Integration (SimulationBridge, YAGNI)

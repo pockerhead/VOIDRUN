@@ -155,10 +155,13 @@
 - [ ] Balance tests (симуляция NPC боёв)
 
 **⏸️ ОТЛОЖЕНО (можем сделать позже):**
-- [ ] Player control (WASD, mouse attack, camera follow)
+- [ ] Player control (WASD, mouse attack)
+- [ ] First-person camera (basic mode)
 - [ ] Player HUD (health/stamina UI)
 - [ ] Melee combat polish (parry, block, dodge)
 - [ ] Chunk system + procgen
+- [ ] VATS system (design doc готов, implementation позже)
+- [ ] Dialogue camera (cinematic shots)
 
 ### Фаза 1.5.5: Chunk System & Procgen Foundation (ДОБАВЛЕНО 2025-01-10)
 
