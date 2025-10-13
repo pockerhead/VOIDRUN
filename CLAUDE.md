@@ -146,6 +146,9 @@ godot_print!("message");  // Только для godot-специфичных в
 - [docs/architecture/bevy-ecs-design.md](docs/architecture/bevy-ecs-design.md) — Как использовать Bevy ECS
 - [docs/architecture/physics-architecture.md](docs/architecture/physics-architecture.md) — Hybrid ECS/Godot
 
+**Design Docs (геймплей, лор, механики):**
+- [docs/design/shield-technology.md](docs/design/shield-technology.md) — Технология щитов (почему ranged + melee сосуществуют)
+
 **ADRs (Architecture Decision Records):**
 - ADR-002: Godot-Rust Integration (SimulationBridge, YAGNI)
 - ADR-003: ECS vs Godot Physics (Hybrid architecture)

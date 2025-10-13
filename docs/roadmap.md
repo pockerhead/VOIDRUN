@@ -1,8 +1,10 @@
 # VOIDRUN Development Roadmap
 
-**Версия:** 1.0
-**Обновлено:** 2025-01-07
+**Версия:** 1.1
+**Обновлено:** 2025-01-13
 **Стратегия:** Headless-first (70%) + Debug визуал (30%)
+
+**Текущий фокус:** Melee Combat System + Shield Implementation
 
 ---
 
@@ -93,20 +95,36 @@
 
 ---
 
-## 🚧 Фаза 1.5: Combat Mechanics + Player Control (ТЕКУЩЕЕ)
+## 🚧 Фаза 1.5: Combat Mechanics (ТЕКУЩЕЕ)
 
-**Срок:** 5-8 дней
-**Статус:** 🎯 In progress
-**Обновлено:** 2025-01-10
+**Срок:** 3-5 дней
+**Статус:** 🔴 Melee broken, ranged works
+**Обновлено:** 2025-01-13
 
 ### Milestone цель:
-**Playable prototype: игрок дерётся с NPC (ближний + дальний бой)**
+**NPC vs NPC combat (melee + ranged) полностью работает**
 
-### Зачем:
-- 🎮 Сделать игру играбельной (сейчас только NPC vs NPC)
-- 🎮 Проверить combat feel (timing, weight, impact)
-- 🎮 Foundation для inventory/loot систем
-- 🎮 Fun factor > 0 перед переходом к экономике
+### Текущий статус (реальный):
+
+**✅ Что РАБОТАЕТ:**
+- ✅ Ranged combat: AI стреляет, projectiles летят, collision detection работает
+- ✅ AI FSM: Idle → Patrol → Combat → Retreat
+- ✅ Vision system: SpottedEnemies, ActorSpotted/Lost events
+- ✅ Movement: MovementCommand, pathfinding (NavigationAgent3D)
+- ✅ Godot visualization: health bars, projectiles, AI state labels
+- ✅ Weapon attachment: test_pistol.tscn prefab система работает
+- ✅ Tactical validation: distance/LOS checks (Godot Transform)
+
+**🔴 Что СЛОМАНО:**
+- ❌ Melee combat: `Attacker` компонент есть, но НЕТ системы генерации атак
+- ❌ AI не атакует в melee (нет аналога `ai_weapon_fire_intent` для melee)
+- ❌ Нет melee hitbox collision detection
+- ❌ Нет melee animation trigger системы
+
+**📋 Что НЕ НАЧАТО:**
+- ⏸️ Player control (можем отложить)
+- ⏸️ Shield system (design doc готов, code нет)
+- ⏸️ Chunk system (можем отложить)
 
 ### Архитектурные решения (2025-01-10):
 - ✅ **ADR-002:** Godot-Rust Integration (SimulationBridge без abstraction, YAGNI)
@@ -114,32 +132,33 @@
 - ✅ **ADR-004:** Command/Event Architecture (Bevy Events, Changed<T> sync)
 - ✅ **ADR-005:** Transform Ownership (Godot Transform + ECS StrategicPosition)
 - ✅ **ADR-006:** Chunk-based Streaming World (procgen, seed + deltas saves)
-- ✅ **Assets:** Godot prefabs + Rust load через `load::<T>("res://")`
+- ✅ **ADR-007:** TSCN Prefabs + Dynamic Attachment
+- ✅ **Design Doc:** Shield Technology (Kinetic Threshold Barriers)
 
-### Задачи:
+### Задачи (приоритет):
 
-**Player Control (1-2 дня):**
-- [ ] WASD movement через Godot Input events
-- [ ] Mouse attack (LMB → swing weapon)
-- [ ] Camera follow player (3rd person, smooth)
-- [ ] Health/Stamina HUD (bars на screen space)
+**🔥 КРИТИЧНО: Melee Combat System (2-3 дня):**
+- [ ] `MeleeAttackIntent` event (ECS strategic decision)
+- [ ] `ai_melee_attack_intent` система (генерирует intent когда AI в Combat + близко)
+- [ ] `process_melee_attack_intents` система (Godot tactical validation)
+- [ ] `MeleeAttackStarted` event (ECS → Godot)
+- [ ] Melee weapon hitbox (Area3D collision detection)
+- [ ] Melee animation trigger (Godot AnimationPlayer)
+- [ ] `MeleeHit` event → `DamageDealt` (Godot → ECS damage)
 
-**Melee Combat Polish (1 день):**
-- [ ] Parry window (200ms timing, perfect block = no damage)
-- [ ] Block action (hold RMB, stamina drain 5/sec)
-- [ ] Dodge roll (spacebar, i-frames 300ms, stamina cost 20)
+**🎯 Shield System Implementation (2-3 дня):**
+- [ ] `Shield` component (energy, threshold, regen_rate)
+- [ ] Shield vs Damage system (ranged разряжает, melee игнорирует)
+- [ ] Shield models (Military/Commercial/Civilian/Legacy с разными stats)
+- [ ] Shield визуализация (мерцание при попадании, energy bar)
+- [ ] Shield regeneration (вне боя)
+- [ ] Balance tests (симуляция NPC боёв)
 
-**Ranged Combat System (2-3 дня):**
-- [ ] Projectile physics (RigidBody3D с gravity)
-- [ ] Bow/crossbow weapon type
-- [ ] Ballistics (arc trajectory, deterministic)
-- [ ] Ammo system (simple counter, pickup later)
-- [ ] Ranged damage system (hit detection)
-
-**AI Upgrade (1-2 дня):**
-- [ ] Pathfinding (A* через Godot NavigationAgent3D)
-- [ ] Ranged AI behavior (keep distance 5-10m, shoot)
-- [ ] Dodge projectiles (simple raycast prediction)
+**⏸️ ОТЛОЖЕНО (можем сделать позже):**
+- [ ] Player control (WASD, mouse attack, camera follow)
+- [ ] Player HUD (health/stamina UI)
+- [ ] Melee combat polish (parry, block, dodge)
+- [ ] Chunk system + procgen
 
 ### Фаза 1.5.5: Chunk System & Procgen Foundation (ДОБАВЛЕНО 2025-01-10)
 
@@ -463,4 +482,39 @@
 
 ---
 
-**Следующий шаг:** Начать Фазу 1 → добавить bevy_rapier3d и базовые компоненты.
+---
+
+## 🎯 Следующий шаг (завтра)
+
+**Приоритет 1: Melee Combat System (2-3 дня)**
+
+Реализовать полную систему melee атак по образцу ranged combat:
+
+**ECS Layer (Strategic):**
+1. `MeleeAttackIntent` event — AI хочет атаковать
+2. `ai_melee_attack_intent` система — генерирует intent когда:
+   - AI в Combat state
+   - Attacker cooldown готов
+   - Target в радиусе melee (< 2м)
+3. `MeleeAttackStarted` event — атака одобрена Godot
+
+**Godot Layer (Tactical):**
+1. `process_melee_attack_intents` — validate distance (Godot Transform)
+2. `execute_melee_attacks` — trigger animation + enable hitbox
+3. Melee weapon prefab (sword TSCN с Area3D hitbox)
+4. `MeleeHit` event → `DamageDealt`
+
+**Приоритет 2: Shield System (2-3 дня)**
+
+После того как melee работает, добавить shields:
+
+1. `Shield` component (energy, threshold, regen)
+2. Modify damage systems:
+   - Ranged damage → разряжает щит
+   - Melee damage → игнорирует щит
+3. Shield визуализация (bars + VFX)
+4. Balance tests
+
+**Итого:** ~5 дней до fully working combat prototype (melee + ranged + shields)
+
+**Потом:** Player control или Chunk system (на выбор)
