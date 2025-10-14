@@ -49,6 +49,9 @@ pub struct NavigationState {
 
     /// Последний target entity для FollowEntity (трекаем смену цели)
     pub last_follow_target: Option<Entity>,
+
+    /// true когда NavigationAgent может достичь target позиции
+    pub can_reach_target: bool,
 }
 
 /// Скорость движения актора (метры/сек)

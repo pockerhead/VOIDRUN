@@ -130,7 +130,7 @@ pub fn process_movement_commands_main_thread(
 /// NavigationState используется для one-time PositionChanged event (избегаем спама).
 pub fn apply_navigation_velocity_main_thread(
     mut query: Query<
-        (Entity, &voidrun_simulation::ai::AIState, &mut NavigationState),
+        (Entity, &mut voidrun_simulation::ai::AIState, &mut NavigationState),
         With<voidrun_simulation::Actor>,
     >,
     visuals: NonSend<VisualRegistry>,
@@ -138,7 +138,7 @@ pub fn apply_navigation_velocity_main_thread(
 ) {
     const MOVE_SPEED: f32 = 5.0; // метры в секунду
 
-    for (entity, _state, mut nav_state) in query.iter_mut() {
+    for (entity, mut ai_state, mut nav_state) in query.iter_mut() {
         // actor_node теперь САМ CharacterBody3D (root node из TSCN)
         let Some(actor_node) = visuals.visuals.get(&entity).cloned() else {
             continue;
@@ -158,10 +158,14 @@ pub fn apply_navigation_velocity_main_thread(
             // Нет валидного пути — стоим на месте
             nav_agent.set_velocity(Vector3::ZERO);
             body.set_velocity(Vector3::ZERO);
-            // TODO: send event чтобы AI:State перешел в Idle
+            // TODO: send event чтобы AI:State сгенерировал новый MovementCommand
+            if nav_state.can_reach_target {
+                nav_state.can_reach_target = false;
+                *ai_state = voidrun_simulation::ai::AIState::Idle;
+            }
             continue;
         }
-
+        nav_state.can_reach_target = true;
         // Проверяем достигли ли цели (как enemy.gd:36)
         if nav_agent.is_target_reached() {
             log_every_10_frames(&format!("[Movement] target reached"));

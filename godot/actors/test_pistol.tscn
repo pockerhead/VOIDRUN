@@ -26,7 +26,7 @@ mesh = SubResource("CapsuleMesh_6kfj7")
 skeleton = NodePath("../..")
 
 [node name="BulletSpawn" type="Node3D" parent="WeaponPlacement"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.1350438)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.47045e-09, 0, 0.15186378)
 
 [node name="MeshInstance3D2" type="MeshInstance3D" parent="WeaponPlacement"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.117724, -0.07213485)

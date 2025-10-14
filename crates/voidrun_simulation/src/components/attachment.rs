@@ -19,6 +19,16 @@ pub struct Attachment {
     pub attachment_type: AttachmentType,
 }
 
+impl Default for Attachment {
+    fn default() -> Self {
+        Self {
+            prefab_path: "".to_string(),
+            attachment_point: "".to_string(),
+            attachment_type: AttachmentType::Item,
+        }
+    }
+}
+
 impl Attachment {
     /// Создать attachment для weapon
     pub fn weapon(prefab_path: impl Into<String>) -> Self {

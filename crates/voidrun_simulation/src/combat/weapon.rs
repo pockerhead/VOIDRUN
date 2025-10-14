@@ -6,9 +6,11 @@
 //! - Events: WeaponFired (ECS→Godot), ProjectileHit (Godot→ECS)
 
 use bevy::prelude::*;
+use crate::Attachment;
 
 /// Компонент оружия (attached к актёру)
 #[derive(Component, Debug, Clone, Reflect)]
+#[require(Attachment)]
 pub struct Weapon {
     /// Урон за выстрел
     pub damage: u32,
@@ -37,7 +39,7 @@ impl Default for Weapon {
             fire_cooldown: 0.5,
             cooldown_timer: 0.0,
             range: 20.0,
-            projectile_speed: 30.0, // 8 м/с (медленнее для видимости)
+            projectile_speed: 300.0, // 8 м/с (медленнее для видимости)
             hearing_range: 100.0, // 25м радиус слышимости для стандартного оружия
         }
     }

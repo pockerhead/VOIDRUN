@@ -216,7 +216,7 @@ pub fn create_test_navigation_region_with_obstacles(
     // CollisionShape3D для земли (плоский box 400x1x400м)
     let mut ground_collision = CollisionShape3D::new_alloc();
     let mut ground_shape = BoxShape3D::new_gd();
-    ground_shape.set_size(Vector3::new(400.0, 1.0, 400.0));
+    ground_shape.set_size(Vector3::new(60.0, 1.0, 60.0));
     ground_collision.set_shape(&ground_shape.upcast::<godot::classes::Shape3D>());
     ground_collision.set_position(Vector3::new(0.0, -0.5, 0.0)); // Опустить на полметра
     ground_body.add_child(&ground_collision.upcast::<Node>());
@@ -225,7 +225,7 @@ pub fn create_test_navigation_region_with_obstacles(
     let mut ground_visual = MeshInstance3D::new_alloc();
     ground_visual.set_name("GroundVisual");
     let mut plane = PlaneMesh::new_gd();
-    plane.set_size(Vector2::new(400.0, 400.0));
+    plane.set_size(Vector2::new(60.0, 60.0));
     ground_visual.set_mesh(&plane.upcast::<Mesh>());
 
     let mut material = StandardMaterial3D::new_gd();
@@ -241,6 +241,8 @@ pub fn create_test_navigation_region_with_obstacles(
         ("Obstacle2", Vector3::new(-15.0, 0.0, 5.0), Vector3::new(3.0, 4.5, 3.0)),
         ("Obstacle3", Vector3::new(20.0, 0.0, -10.0), Vector3::new(1.5, 4.0, 1.5)),
         ("Obstacle4", Vector3::new(-10.0, 0.0, -15.0), Vector3::new(4.0, 4.0, 2.0)),
+        ("Obstacle5", Vector3::new(-0.0, 0.0, -0.0), Vector3::new(4.0, 4.0, 2.0)),
+
     ];
 
     for (name, pos, size) in obstacles.iter() {

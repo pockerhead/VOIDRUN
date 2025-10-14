@@ -101,6 +101,8 @@
 **Статус:** 🔴 Melee broken, ranged works
 **Обновлено:** 2025-01-13
 
+**📋 Детальный план:** [Melee Combat Implementation](implementation/melee-combat-system.md)
+
 ### Milestone цель:
 **NPC vs NPC combat (melee + ranged) полностью работает**
 

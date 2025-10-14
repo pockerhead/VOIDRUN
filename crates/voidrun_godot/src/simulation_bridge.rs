@@ -378,20 +378,26 @@ fn delayed_npc_spawn_system(
             voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
 
             // Спавним всех NPC
-            spawn_test_npc(&mut commands, (-25.0, 0.5, 0.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-16.0, 0.5, 2.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-18.0, 0.5, 0.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-5.0, 0.5, 2.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-7.0, 0.5, 0.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-4.0, 0.5, 2.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-5.0, 0.5, 1.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-25.0, 0.5, -5.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-16.0, 0.5, -7.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-18.0, 0.5, -5.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-5.0, 0.5, -7.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-7.0, 0.5, -5.0), 1, 100, 1);
+            spawn_test_npc(&mut commands, (-4.0, 0.5, -7.0), 1, 100, 1);
 
-            spawn_test_npc(&mut commands, (25.0, 0.5, 0.0), 2, 100, 1);
-            spawn_test_npc(&mut commands, (3.0, 0.5, 2.0), 2, 80, 2);
-            spawn_test_npc(&mut commands, (5.0, 0.5, 0.0), 2, 100, 1);
-            spawn_test_npc(&mut commands, (16.0, 0.5, 2.0), 2, 80, 2);
-            spawn_test_npc(&mut commands, (17.0, 0.5, 0.0), 2, 100, 1);
-            spawn_test_npc(&mut commands, (18.0, 0.5, 2.0), 2, 80, 2);
+            spawn_test_npc(&mut commands, (25.0, 0.5, -5.0), 2, 100, 1);
+            spawn_test_npc(&mut commands, (3.0, 0.5, -7.0), 2, 100, 2);
+            spawn_test_npc(&mut commands, (5.0, 0.5, -5.0), 2, 100, 1);
+            spawn_test_npc(&mut commands, (16.0, 0.5, -7.0), 2, 100, 2);
+            spawn_test_npc(&mut commands, (17.0, 0.5, -5.0), 2, 100, 1);
+            spawn_test_npc(&mut commands, (18.0, 0.5, -7.0), 2, 100, 2);
+
+            spawn_test_npc(&mut commands, (0.0, 0.5, 7.0), 3, 100, 1);
+            spawn_test_npc(&mut commands, (2.0, 0.5, 8.0), 3, 100, 2);
+            spawn_test_npc(&mut commands, (0.0, 0.5, 9.0), 3, 100, 1);
+            spawn_test_npc(&mut commands, (2.0, 0.5, 8.0), 3, 100, 2);
+            spawn_test_npc(&mut commands, (0.0, 0.5, 15.0), 3, 100, 1);
+            spawn_test_npc(&mut commands, (2.0, 0.5, 18.0), 3, 100, 2);
 
             // Удаляем маркер (spawn уже выполнен)
             commands.entity(entity).despawn();

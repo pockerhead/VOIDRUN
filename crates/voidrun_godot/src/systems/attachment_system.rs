@@ -66,11 +66,11 @@ fn attach_single_prefab(
 
     // 2. Найти attachment point
     let Some(mut attachment_point_node) = find_node_by_path(host_node, &attachment.attachment_point) else {
-        godot_warn!(
+        voidrun_simulation::log_error(&format!(
             "attach_prefab: attachment point '{}' not found in entity {:?}",
             attachment.attachment_point,
             entity
-        );
+        ));
         return;
     };
 
@@ -78,11 +78,11 @@ fn attach_single_prefab(
     let prefab_scene = match load_packed_scene(&attachment.prefab_path) {
         Some(scene) => scene,
         None => {
-            godot_error!(
+            voidrun_simulation::log_error(&format!(
                 "attach_prefab: failed to load prefab '{}' for entity {:?}",
                 attachment.prefab_path,
                 entity
-            );
+            ));
             return;
         }
     };

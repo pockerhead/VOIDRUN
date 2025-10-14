@@ -53,6 +53,7 @@ pub fn spawn_actor_visuals_main_thread(
         let faction_color = match actor.faction_id {
             1 => Color::from_rgb(0.2, 0.6, 1.0), // Blue
             2 => Color::from_rgb(0.8, 0.2, 0.2), // Red
+            3 => Color::from_rgb(0.2, 0.8, 0.2), // Green
             _ => Color::from_rgb(0.5, 0.5, 0.5), // Gray
         };
 

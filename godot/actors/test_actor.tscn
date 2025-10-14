@@ -36,11 +36,11 @@ collision_layer = 0
 collision_mask = 2
 monitorable = false
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Head/VisionCone"]
+[node name="VisionShape" type="CollisionShape3D" parent="Head/VisionCone"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
 shape = ExtResource("1_6ks1i")
 
-[node name="CollisionShape3D2" type="CollisionShape3D" parent="Head/VisionCone"]
+[node name="Debug_VisionShape" type="CollisionShape3D" parent="Head/VisionCone"]
 shape = SubResource("CylinderShape3D_qev7w")
 disabled = true
 
