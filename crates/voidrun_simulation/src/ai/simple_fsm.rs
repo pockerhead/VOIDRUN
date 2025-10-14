@@ -14,7 +14,7 @@
 
 use bevy::prelude::*;
 use crate::components::{Actor, Health, Stamina, MovementCommand};
-use crate::combat::Attacker;
+use crate::combat::WeaponStats;
 use crate::ai::GodotAIEvent;
 
 /// AI FSM состояния (event-driven)
@@ -123,11 +123,22 @@ pub fn update_spotted_enemies(
                 // Враг — добавляем в список
                 if !spotted.enemies.contains(target) {
                     spotted.enemies.push(*target);
+                    crate::log(&format!(
+                        "👁️ ActorSpotted: {:?} spotted enemy {:?} (faction {} vs {})",
+                        observer, target, observer_actor.faction_id, target_actor.faction_id
+                    ));
                 }
             }
             GodotAIEvent::ActorLost { observer, target } => {
                 if let Ok((mut spotted, _)) = ai_query.get_mut(*observer) {
+                    let was_present = spotted.enemies.contains(target);
                     spotted.enemies.retain(|&e| e != *target);
+                    if was_present {
+                        crate::log(&format!(
+                            "👻 ActorLost: {:?} lost sight of {:?} (removed from SpottedEnemies)",
+                            observer, target
+                        ));
+                    }
                 }
             }
         }
@@ -163,24 +174,27 @@ pub fn ai_fsm_transitions(
     mut ai_query: Query<(
         Entity,
         &mut AIState,
-        &SpottedEnemies,
+        &mut SpottedEnemies,
         &AIConfig,
         &Health,
         &Stamina,
         &crate::StrategicPosition,
+        Option<&crate::combat::MeleeAttackState>, // Check if in attack animation
     )>,
     potential_targets: Query<&Health>, // Для проверки что target жив
     time: Res<Time<Fixed>>,
 ) {
     let delta = time.delta_secs();
 
-    for (entity, mut state, spotted, config, health, stamina, strategic_pos) in ai_query.iter_mut() {
+    for (entity, mut state, mut spotted, config, health, stamina, strategic_pos, melee_attack_state) in ai_query.iter_mut() {
         let stamina_percent = stamina.current / stamina.max;
         let health_percent = health.current as f32 / health.max as f32;
 
         // Проверяем нужно ли отступить
-        let should_retreat = stamina_percent < config.retreat_stamina_threshold
-            || health_percent < config.retreat_health_threshold;
+        // ⚠️ НЕ отступаем если в процессе атаки (MeleeAttackState active)!
+        let should_retreat = melee_attack_state.is_none()
+            && (stamina_percent < config.retreat_stamina_threshold
+                || health_percent < config.retreat_health_threshold);
 
         let new_state = match state.as_ref() {
             AIState::Dead => {
@@ -200,10 +214,11 @@ pub fn ai_fsm_transitions(
             AIState::Patrol { next_direction_timer, target_position } => {
                 // Если spotted enemy → Combat
                 if let Some(&target) = spotted.enemies.first() {
+                    crate::log(&format!("🔍 {:?} Patrol: spotted {} enemies, first = {:?}", entity, spotted.enemies.len(), target));
                     // Проверяем что target жив
                     if let Ok(target_health) = potential_targets.get(target) {
                         if target_health.is_alive() {
-                            crate::log(&format!("AI: {:?} Patrol → Combat (target {:?})", entity, target));
+                            crate::log(&format!("⚔️ {:?} Patrol → Combat (target {:?})", entity, target));
                             AIState::Combat { target }
                         } else {
                             // Target мертв, продолжаем патруль
@@ -269,11 +284,16 @@ pub fn ai_fsm_transitions(
 
                     if !target_valid {
                         // Target потерян или мертв → ищем нового или патруль
+                        crate::log(&format!("❌ {:?} Combat: target {:?} INVALID (in spotted: {}, alive: {})",
+                            entity, target,
+                            spotted.enemies.contains(target),
+                            potential_targets.get(*target).map(|h| h.is_alive()).unwrap_or(false)
+                        ));
                         if let Some(&new_target) = spotted.enemies.first() {
-                            crate::log(&format!("AI: {:?} Combat: target lost, switching to {:?}", entity, new_target));
+                            crate::log(&format!("🔄 {:?} Combat: target lost, switching to {:?}", entity, new_target));
                             AIState::Combat { target: new_target }
                         } else {
-                            crate::log(&format!("AI: {:?} Combat → Patrol (no targets)", entity));
+                            crate::log(&format!("🚶 {:?} Combat → Patrol (no targets in SpottedEnemies)", entity));
                             AIState::Patrol {
                                 next_direction_timer: config.patrol_direction_change_interval,
                                 target_position: None,
@@ -290,17 +310,45 @@ pub fn ai_fsm_transitions(
                 let new_timer = (*timer - delta).max(0.0);
 
                 if new_timer <= 0.0 {
-                    // Retreat закончен
-                    if let Some(&target) = spotted.enemies.first() {
-                        // Есть spotted enemy → обратно в Combat
-                        crate::log(&format!("AI: {:?} Retreat → Combat", entity));
-                        AIState::Combat { target }
+                    // Retreat закончен — проверяем можем ли вернуться в Combat
+
+                    // Приоритет 1: возвращаемся к from_target (даже если VisionCone потерял)
+                    if let Some(target) = from_target {
+                        // Проверяем что target всё ещё жив
+                        if potential_targets.get(*target).map(|h| h.is_alive()).unwrap_or(false) {
+                            // ✅ Добавляем from_target обратно в SpottedEnemies (VisionCone мог потерять во время retreat)
+                            if !spotted.enemies.contains(target) {
+                                spotted.enemies.push(*target);
+                                crate::log(&format!("🔄 {:?} re-adding from_target {:?} to SpottedEnemies (lost during Retreat)", entity, target));
+                            }
+                            crate::log(&format!("AI: {:?} Retreat → Combat (return to from_target {:?})", entity, target));
+                            AIState::Combat { target: *target }
+                        } else {
+                            // from_target мёртв — ищем другого spotted enemy
+                            if let Some(&new_target) = spotted.enemies.first() {
+                                crate::log(&format!("AI: {:?} Retreat → Combat (from_target dead, switching to {:?})", entity, new_target));
+                                AIState::Combat { target: new_target }
+                            } else {
+                                // Никого нет → Patrol
+                                crate::log(&format!("AI: {:?} Retreat → Patrol (no targets)", entity));
+                                AIState::Patrol {
+                                    next_direction_timer: config.patrol_direction_change_interval,
+                                    target_position: None,
+                                }
+                            }
+                        }
                     } else {
-                        // Никого нет → Patrol
-                        crate::log(&format!("AI: {:?} Retreat → Patrol", entity));
-                        AIState::Patrol {
-                            next_direction_timer: config.patrol_direction_change_interval,
-                            target_position: None,
+                        // Нет from_target — проверяем spotted enemies
+                        if let Some(&target) = spotted.enemies.first() {
+                            crate::log(&format!("AI: {:?} Retreat → Combat (spotted enemy)", entity));
+                            AIState::Combat { target }
+                        } else {
+                            // Никого нет → Patrol
+                            crate::log(&format!("AI: {:?} Retreat → Patrol (no targets)", entity));
+                            AIState::Patrol {
+                                next_direction_timer: config.patrol_direction_change_interval,
+                                target_position: None,
+                            }
                         }
                     }
                 } else {
@@ -362,6 +410,7 @@ pub fn ai_movement_from_state(
             AIState::Combat { target } => {
                 // Следуем за target (FollowEntity для динамического преследования)
                 if !matches!(*command, MovementCommand::FollowEntity { target: t } if t == *target) {
+                    crate::log(&format!("🏃 AI movement: Combat → FollowEntity {:?}", target));
                     *command = MovementCommand::FollowEntity {
                         target: *target,
                     };
@@ -369,7 +418,7 @@ pub fn ai_movement_from_state(
             }
 
             AIState::Retreat { from_target, .. } => {
-                // Отступаем от target (противоположное направление)
+                // Тактическое отступление: пятиться назад, но смотреть на врага
                 let Some(target_entity) = from_target else {
                     if !matches!(*command, MovementCommand::Idle) {
                         *command = MovementCommand::Idle;
@@ -377,30 +426,10 @@ pub fn ai_movement_from_state(
                     continue;
                 };
 
-                let Ok(target_strategic_pos) = targets_query.get(*target_entity) else {
-                    if !matches!(*command, MovementCommand::Idle) {
-                        *command = MovementCommand::Idle;
-                    }
-                    continue;
-                };
-
-                let current_world_pos = strategic_pos.to_world_position(0.5);
-                let target_world_pos = target_strategic_pos.to_world_position(0.5);
-                let to_target = target_world_pos - current_world_pos;
-                let retreat_direction = -to_target.normalize();
-                let retreat_position = current_world_pos + retreat_direction * 5.0; // 5 метров назад
-
-                // ✅ Проверяем что retreat position изменилась (избегаем спама)
-                const MIN_MOVE_THRESHOLD: f32 = 0.1; // 10 см
-                let should_update = if let MovementCommand::MoveToPosition { target: current } = *command {
-                    (retreat_position - current).length() > MIN_MOVE_THRESHOLD
-                } else {
-                    true
-                };
-
-                if should_update {
-                    *command = MovementCommand::MoveToPosition {
-                        target: retreat_position,
+                // Используем RetreatFrom для тактического отступления
+                if !matches!(*command, MovementCommand::RetreatFrom { target: t } if t == *target_entity) {
+                    *command = MovementCommand::RetreatFrom {
+                        target: *target_entity,
                     };
                 }
             }
@@ -413,16 +442,16 @@ pub fn ai_movement_from_state(
 /// Генерирует атаки когда в Combat state и target в радиусе.
 /// ADR-005: Используем StrategicPosition для distance checks
 pub fn ai_attack_execution(
-    mut ai_query: Query<(&AIState, &crate::StrategicPosition, &mut Attacker, &Stamina)>,
+    mut ai_query: Query<(&AIState, &crate::StrategicPosition, &mut WeaponStats, &Stamina)>,
     targets_query: Query<&crate::StrategicPosition>,
     time: Res<Time<Fixed>>,
 ) {
     let delta = time.delta_secs();
 
-    for (state, strategic_pos, mut attacker, stamina) in ai_query.iter_mut() {
+    for (state, strategic_pos, mut weapon, stamina) in ai_query.iter_mut() {
         // Обновляем cooldown
-        if attacker.cooldown_timer > 0.0 {
-            attacker.cooldown_timer -= delta;
+        if weapon.cooldown_timer > 0.0 {
+            weapon.cooldown_timer -= delta;
         }
 
         // Атакуем только в Combat state
@@ -440,13 +469,13 @@ pub fn ai_attack_execution(
 
         // Проверяем: в радиусе, cooldown готов, есть stamina
         const ATTACK_COST: f32 = 20.0;
-        if distance <= attacker.attack_radius
-            && attacker.cooldown_timer <= 0.0
+        if distance <= weapon.attack_radius
+            && weapon.cooldown_timer <= 0.0
             && stamina.current >= ATTACK_COST
         {
             // Атака происходит через старую систему (combat systems обрабатывают)
             // Просто сбрасываем cooldown
-            attacker.cooldown_timer = attacker.attack_cooldown;
+            weapon.cooldown_timer = weapon.attack_cooldown;
 
             crate::log(&format!("AI: attacking target {:?}", target));
         }
@@ -505,6 +534,57 @@ pub fn handle_actor_death(
             *state = AIState::Dead;
             crate::log("Actor died → AI disabled (Dead state)");
         }
+    }
+}
+
+/// System: AI реакция на полученный урон
+///
+/// Если актора ударили, он автоматически:
+/// - Добавляет атакующего в SpottedEnemies (если враг)
+/// - Разворачивается к атакующему (через MovementCommand::FollowEntity)
+/// - FSM перейдёт в Combat на следующем тике через ai_fsm_transitions
+///
+/// Это обеспечивает естественную реакцию "ударили в спину → развернулся и дерёшься"
+pub fn react_to_damage(
+    mut damage_events: EventReader<crate::combat::DamageDealt>,
+    mut actors: Query<(&Actor, &mut SpottedEnemies, &mut MovementCommand)>,
+    attackers: Query<&Actor>,
+) {
+    for damage_event in damage_events.read() {
+        // Получаем victim actor
+        let Ok((victim_actor, mut spotted_enemies, mut command)) = actors.get_mut(damage_event.target) else {
+            continue;
+        };
+
+        // Получаем attacker actor
+        let Ok(attacker_actor) = attackers.get(damage_event.attacker) else {
+            continue;
+        };
+
+        // Проверяем фракции: реагируем только на врагов
+        if victim_actor.faction_id == attacker_actor.faction_id {
+            // Friendly fire — игнорируем (или можно добавить другую логику)
+            continue;
+        }
+
+        // Добавляем атакующего в SpottedEnemies (если ещё не там)
+        if !spotted_enemies.enemies.contains(&damage_event.attacker) {
+            spotted_enemies.enemies.push(damage_event.attacker);
+            crate::log(&format!(
+                "⚠️ {:?} damaged by {:?} → added to SpottedEnemies",
+                damage_event.target, damage_event.attacker
+            ));
+        }
+
+        // Разворачиваемся к атакующему (FollowEntity даст NavigationAgent3D развернуться)
+        *command = MovementCommand::FollowEntity {
+            target: damage_event.attacker,
+        };
+
+        crate::log(&format!(
+            "🔥 {:?} hit by {:?} → following attacker",
+            damage_event.target, damage_event.attacker
+        ));
     }
 }
 

@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://b11myb8dfjdc6"]
+[gd_scene load_steps=12 format=3 uid="uid://b11myb8dfjdc6"]
 
 [ext_resource type="Shape3D" uid="uid://chinlvaytthss" path="res://resources/shapes/vision_con.tres" id="1_6ks1i"]
 
@@ -22,6 +22,96 @@ size = Vector3(0.045, 0.055, 0.135)
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.4
 height = 1.8
+
+[sub_resource type="Animation" id="Animation_r8356"]
+resource_name = "melee_windup"
+length = 0.3
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.435275, 1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0), Vector3(-0.59, 0.495, 0.155)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.4829661, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0.47996554, 0, 0.38397244)]
+}
+
+[sub_resource type="Animation" id="Animation_dyjn2"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_cnsat"]
+resource_name = "melee_swing"
+length = 0.3
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.36602145, 1),
+"update": 0,
+"values": [Vector3(-0.59, 0.495, 0.155), Vector3(0.01, -0.14, -0.63)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.29730183, 1),
+"update": 0,
+"values": [Vector3(0.47996554, 0, 0.38397244), Vector3(-2.3823745, 0.6981317, -1.0559242)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_50585"]
+_data = {
+&"RESET": SubResource("Animation_dyjn2"),
+&"melee_swing": SubResource("Animation_cnsat"),
+&"melee_windup": SubResource("Animation_r8356")
+}
 
 [node name="Actor" type="CharacterBody3D"]
 collision_layer = 2
@@ -70,3 +160,8 @@ mesh = SubResource("BoxMesh_x3k1a")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
 shape = SubResource("CapsuleShape3D_body")
+
+[node name="MeleeSwingAnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_50585")
+}

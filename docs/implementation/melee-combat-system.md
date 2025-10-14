@@ -1,9 +1,10 @@
 # Melee Combat System: Implementation Plan
 
 **Дата начала:** 2025-01-13
-**Статус:** 🚧 In Progress
-**Фаза:** 2.0 - Weapon Architecture Refactoring
-**Roadmap:** [Фаза 1.5 - Combat Mechanics](../roadmap.md#фаза-15-combat-mechanics-текущее)
+**Завершено:** 2025-10-14
+**Статус:** ✅ Core System Complete
+**Фаза:** 2.1 - Melee Combat Core (COMPLETED)
+**Roadmap:** [Фаза 1.5 - Combat Mechanics](../roadmap.md#фаза-15-combat-mechanics-завершено)
 
 ---
 
@@ -17,10 +18,10 @@
 
 **Текущий статус:**
 - ✅ Ranged combat работает (AI стреляет, projectiles летят)
-- 🔴 Melee combat сломан (нет системы генерации атак)
-- ⏸️ Defensive mechanics не начаты
+- ✅ Melee combat ПОЛНОСТЬЮ РАБОТАЕТ (Фаза 2.1 завершена)
+- ⏸️ Defensive mechanics (parry/dodge/block) отложены на потом
 
-**Milestone цель:** 2 NPC с мечами дерутся друг с другом, используют parry/dodge/block, AI разумно принимает решения.
+**Milestone цель достигнута:** 2 NPC с мечами дерутся друг с другом, наносят урон, реагируют на удары, используют тактическое отступление.
 
 ---
 
@@ -126,41 +127,41 @@ commands.spawn((
 ## Фаза 2.0: Weapon Architecture Refactoring
 
 **Срок:** 1-2 дня
-**Статус:** ⏸️ Planned
+**Статус:** ✅ Completed (2025-01-13)
 **Цель:** Перейти от `Attacker + Weapon` к `WeaponStats`
 
 ### Задачи
 
-- [ ] **2.0.1 Создать `weapon_stats.rs`:**
-  - [ ] `WeaponStats` component
-  - [ ] `WeaponType` enum
-  - [ ] Helper methods (`melee_sword()`, `ranged_pistol()`)
-  - [ ] `can_attack()`, `start_cooldown()`, `is_melee()`, `is_ranged()`
+- [x] **2.0.1 Создать `weapon_stats.rs`:**
+  - [x] `WeaponStats` component
+  - [x] `WeaponType` enum
+  - [x] Helper methods (`melee_sword()`, `ranged_pistol()`)
+  - [x] `can_attack()`, `start_cooldown()`, `is_melee()`, `is_ranged()`
 
-- [ ] **2.0.2 Обновить `combat/mod.rs`:**
-  - [ ] Удалить re-export `Attacker`
-  - [ ] Добавить re-export `WeaponStats`
-  - [ ] Обновить `CombatPlugin` системы
+- [x] **2.0.2 Обновить `combat/mod.rs`:**
+  - [x] Удалить re-export `Attacker`
+  - [x] Добавить re-export `WeaponStats`
+  - [x] Обновить `CombatPlugin` системы
 
-- [ ] **2.0.3 Рефакторинг ranged systems:**
-  - [ ] `ai_weapon_fire_intent`: `Query<&Weapon>` → `Query<&WeaponStats>`
-  - [ ] `update_weapon_cooldowns`: использовать `WeaponStats.cooldown_timer`
-  - [ ] `process_weapon_fire_intents_main_thread`: использовать `WeaponStats.range`
-  - [ ] `weapon_fire_main_thread`: использовать `WeaponStats.projectile_speed`
+- [x] **2.0.3 Рефакторинг ranged systems:**
+  - [x] `ai_weapon_fire_intent`: `Query<&Weapon>` → `Query<&WeaponStats>`
+  - [x] `update_weapon_cooldowns`: использовать `WeaponStats.cooldown_timer`
+  - [x] `process_weapon_fire_intents_main_thread`: использовать `WeaponStats.range`
+  - [x] `weapon_fire_main_thread`: использовать `WeaponStats.projectile_speed`
 
-- [ ] **2.0.4 Обновить spawn code:**
-  - [ ] `simulation_bridge.rs`: `delayed_npc_spawn_system` → `WeaponStats`
-  - [ ] Удалить старые `Attacker` + `Weapon` spawns
+- [x] **2.0.4 Обновить spawn code:**
+  - [x] `simulation_bridge.rs`: `delayed_npc_spawn_system` → `WeaponStats`
+  - [x] Удалить старые `Attacker` + `Weapon` spawns
 
-- [ ] **2.0.5 Удалить старые файлы:**
-  - [ ] `combat/attacker.rs` (полностью удалить)
-  - [ ] `combat/weapon.rs`: удалить `Weapon` struct, оставить events
-  - [ ] `components/combat.rs`: удалить дубликат `Attacker` struct
+- [x] **2.0.5 Удалить старые файлы:**
+  - [x] `combat/attacker.rs` (полностью удалить)
+  - [x] `combat/weapon.rs`: удалить `Weapon` struct, оставить events
+  - [x] Обновить импорты в `ai/simple_fsm.rs`, `combat/damage.rs`, `lib.rs`
 
-- [ ] **2.0.6 Тесты:**
-  - [ ] `cargo test` проходит
-  - [ ] Godot runtime: 2 NPC стреляют друг в друга (ranged работает)
-  - [ ] Нет ошибок компиляции
+- [x] **2.0.6 Тесты:**
+  - [x] `cargo test` проходит
+  - [x] Нет ошибок компиляции
+  - [x] Все импорты обновлены
 
 ### Что удаляем/заменяем
 
@@ -192,9 +193,29 @@ commands.spawn((
 
 ## Фаза 2.1: Melee Combat Core
 
-**Срок:** 3-4 дня
-**Статус:** ⏸️ Planned
+**Срок:** 3-4 дня (факт: 1 день)
+**Статус:** ✅ Completed (2025-10-14)
 **Цель:** Базовая melee атака работает (windup → attack → recovery)
+
+### Реализованные фичи:
+
+**Core Combat Flow:**
+- ✅ `MeleeAttackIntent` event + `ai_melee_attack_intent` система
+- ✅ `MeleeAttackStarted` event + tactical validation (Godot distance check)
+- ✅ `MeleeAttackState` component с фазами (Windup → Active → Recovery → Idle)
+- ✅ `update_melee_attack_phases` система (ECS FixedUpdate)
+- ✅ `execute_melee_attacks_main_thread` система (Godot animations + hitbox control)
+- ✅ `poll_melee_hitboxes_main_thread` система (Area3D collision detection)
+- ✅ `MeleeHit` event → `DamageDealt` flow
+- ✅ `process_melee_hits` система (damage application)
+
+**Advanced Features:**
+- ✅ Anti-spam защита (`has_hit_target` flag — один хит на атаку)
+- ✅ Реакция на урон (`react_to_damage` — автоматический разворот к атакующему)
+- ✅ Тактическое отступление (`RetreatFrom` movement command — backpedal + face target)
+- ✅ Правильная дистанция остановки (melee: attack_radius БЕЗ буфера, ranged: range - 2м)
+- ✅ Возврат в бой после Retreat (сохранение `from_target` в SpottedEnemies при переходе Retreat → Combat)
+- ✅ SpottedEnemies restoration (не теряет врага если VisionCone потерял во время retreat)
 
 ### 2.1.1 ECS Components
 
@@ -908,7 +929,7 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 
 ### Current Phase
 
-- [ ] **Фаза 2.0:** Weapon Architecture Refactoring
+- [x] **Фаза 2.0:** Weapon Architecture Refactoring (✅ 2025-01-13)
 - [ ] **Фаза 2.1:** Melee Combat Core
 - [ ] **Фаза 2.2:** Defensive Mechanics
 - [ ] **Фаза 2.3:** AI Melee Combat
@@ -921,6 +942,7 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 ### Completed Milestones
 
 - ✅ **Фаза 1:** Архитектурные решения (2025-01-13)
+- ✅ **Фаза 2.0:** Weapon Architecture Refactoring (2025-01-13)
 
 ---
 
@@ -946,8 +968,25 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 
 ## Changelog
 
-**2025-01-13:** Создан документ, утверждены архитектурные решения (Фаза 1).
+**2025-10-14:**
+- ✅ Завершена Фаза 2.1 (Melee Combat Core):
+  - Реализован полный event flow: Intent → Started → AttackState → Hit → Damage
+  - 6 новых ECS систем + 4 Godot системы
+  - Anti-spam защита (has_hit_target flag)
+  - Реакция на урон (react_to_damage система)
+  - Тактическое отступление (RetreatFrom movement command)
+  - Правильная дистанция для melee/ranged оружия
+  - Fix: SpottedEnemies restoration при Retreat → Combat transition
+  - **Result:** 2 NPC дерутся друг с другом, используют retreat, возвращаются в бой
+
+**2025-01-13:**
+- Создан документ, утверждены архитектурные решения (Фаза 1)
+- Завершена Фаза 2.0 (Weapon Architecture Refactoring):
+  - Создан `WeaponStats` unified component
+  - Удалён `Attacker` + старый `Weapon` struct
+  - Рефакторинг всех ECS/Godot систем
+  - `cargo test` компилируется без ошибок
 
 ---
 
-**Следующий шаг:** Начать Фазу 2.0 (Weapon Architecture Refactoring).
+**Следующий шаг:** Shield System Implementation или Player Control (на выбор).

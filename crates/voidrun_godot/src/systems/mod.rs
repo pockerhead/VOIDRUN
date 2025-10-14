@@ -3,6 +3,7 @@ pub mod visual_sync;
 pub mod attachment_system;
 pub mod vision_system;
 pub mod weapon_system;
+pub mod melee_system;
 pub mod movement_system;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
@@ -34,8 +35,16 @@ pub use weapon_system::{
     process_godot_projectile_hits,
 };
 
+pub use melee_system::{
+    process_melee_attack_intents_main_thread,
+    execute_melee_attacks_main_thread,
+    poll_melee_hitboxes_main_thread,
+};
+
 pub use movement_system::{
     process_movement_commands_main_thread,
+    update_follow_entity_targets_main_thread,
+    apply_retreat_velocity_main_thread,
     apply_navigation_velocity_main_thread,
     // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
 };

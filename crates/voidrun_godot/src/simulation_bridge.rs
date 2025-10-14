@@ -9,7 +9,7 @@ use godot::classes::{
     cpu_particles_3d::{EmissionShape, Parameter as CpuParam},
 };
 use voidrun_simulation::*;
-use voidrun_simulation::combat::Weapon;
+use voidrun_simulation::combat::WeaponStats;
 use crate::camera::rts_camera::RTSCamera3D;
 use crate::systems::{VisualRegistry, AttachmentRegistry, SceneRoot, VisionTracking};
 use voidrun_simulation::ai::{AIState, SpottedEnemies};
@@ -42,7 +42,7 @@ impl INode3D for SimulationBridge {
     fn ready(&mut self) {
         GodotLogger::clear_log_file();
         voidrun_simulation::set_logger(Box::new(GodotLogger));
-        voidrun_simulation::set_log_level(LogLevel::Error);
+        voidrun_simulation::set_log_level(LogLevel::Debug);
         voidrun_simulation::log("SimulationBridge ready - building 3D scene in Rust");
 
         // 1. Создаём navigation region + ground
@@ -85,7 +85,12 @@ impl INode3D for SimulationBridge {
             process_weapon_fire_intents_main_thread,
             weapon_fire_main_thread,
             process_godot_projectile_hits,
+            process_melee_attack_intents_main_thread,
+            execute_melee_attacks_main_thread,
+            poll_melee_hitboxes_main_thread,
             process_movement_commands_main_thread,
+            update_follow_entity_targets_main_thread,
+            apply_retreat_velocity_main_thread,
             apply_navigation_velocity_main_thread,
             // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
         };
@@ -101,12 +106,17 @@ impl INode3D for SimulationBridge {
                 // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven в apply_navigation_velocity)
                 poll_vision_cones_main_thread,    // VisionCone → GodotAIEvent
                 process_movement_commands_main_thread, // MovementCommand → NavigationAgent3D
+                update_follow_entity_targets_main_thread, // Update FollowEntity targets every frame
+                apply_retreat_velocity_main_thread, // RetreatFrom → backpedal + face target
                 apply_navigation_velocity_main_thread, // NavigationAgent → CharacterBody + PositionChanged event
                 weapon_aim_main_thread,           // Aim RightHand at target
                 process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
                 weapon_fire_main_thread,          // WeaponFired → spawn GodotProjectile
                                                   // Projectile physics → GodotProjectile::_physics_process
                 process_godot_projectile_hits,    // Godot queue → ECS ProjectileHit events
+                process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
+                execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox
+                poll_melee_hitboxes_main_thread,   // Poll hitbox overlaps during Active phase → MeleeHit events
                 sync_health_labels_main_thread,
                 sync_stamina_labels_main_thread,
                 sync_ai_state_labels_main_thread,
@@ -377,34 +387,64 @@ fn delayed_npc_spawn_system(
         if elapsed >= spawn_marker.spawn_time {
             voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
 
-            // Спавним всех NPC
-            spawn_test_npc(&mut commands, (-25.0, 0.5, -5.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-16.0, 0.5, -7.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-18.0, 0.5, -5.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-5.0, 0.5, -7.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-7.0, 0.5, -5.0), 1, 100, 1);
-            spawn_test_npc(&mut commands, (-4.0, 0.5, -7.0), 1, 100, 1);
+            // Спавним 2 NPC с мечами для melee combat теста
+            spawn_melee_npc(&mut commands, (0.0, 0.5, 0.0), 1, 300);  // Faction 1
+            spawn_melee_npc(&mut commands, (0.0, 0.5, 2.0), 2, 300);   // Faction 2
+            spawn_melee_npc(&mut commands, (0.0, 0.5, 4.0), 3, 300);   // Faction 3
 
-            spawn_test_npc(&mut commands, (25.0, 0.5, -5.0), 2, 100, 1);
-            spawn_test_npc(&mut commands, (3.0, 0.5, -7.0), 2, 100, 2);
-            spawn_test_npc(&mut commands, (5.0, 0.5, -5.0), 2, 100, 1);
-            spawn_test_npc(&mut commands, (16.0, 0.5, -7.0), 2, 100, 2);
-            spawn_test_npc(&mut commands, (17.0, 0.5, -5.0), 2, 100, 1);
-            spawn_test_npc(&mut commands, (18.0, 0.5, -7.0), 2, 100, 2);
-
-            spawn_test_npc(&mut commands, (0.0, 0.5, 7.0), 3, 100, 1);
-            spawn_test_npc(&mut commands, (2.0, 0.5, 8.0), 3, 100, 2);
-            spawn_test_npc(&mut commands, (0.0, 0.5, 9.0), 3, 100, 1);
-            spawn_test_npc(&mut commands, (2.0, 0.5, 8.0), 3, 100, 2);
-            spawn_test_npc(&mut commands, (0.0, 0.5, 15.0), 3, 100, 1);
-            spawn_test_npc(&mut commands, (2.0, 0.5, 18.0), 3, 100, 2);
-
+            spawn_test_npc(&mut commands, (0.4, 0.5, 6.0), 1, 100, 10);   // Faction 4
+            spawn_test_npc(&mut commands, (0.5, 0.5, 8.0), 2, 100, 10);   // Faction 5
+            spawn_test_npc(&mut commands, (0.3, 0.5, 10.0), 3, 100, 10);   // Faction 6
             // Удаляем маркер (spawn уже выполнен)
             commands.entity(entity).despawn();
 
-            voidrun_simulation::log("✅ NPCs spawned successfully");
+            voidrun_simulation::log("✅ NPCs spawned successfully (melee test: 2 NPCs with swords)");
         }
     }
+}
+
+/// Спавн melee NPC с мечом (для melee combat тестов)
+fn spawn_melee_npc(
+    commands: &mut bevy::prelude::Commands,
+    position: (f32, f32, f32),
+    faction_id: u64,
+    max_hp: u32,
+) -> bevy::prelude::Entity {
+    use bevy::prelude::Vec3;
+
+    let world_pos = Vec3::new(position.0, position.1, position.2);
+    let strategic_pos = StrategicPosition::from_world_position(world_pos);
+
+    commands.spawn((
+        Actor { faction_id },
+        strategic_pos,
+        PrefabPath::new("res://actors/test_actor.tscn"),
+        Health {
+            current: max_hp,
+            max: max_hp,
+        },
+        Stamina {
+            current: 100.0,
+            max: 100.0,
+            regen_rate: 10.0,
+        },
+        WeaponStats::melee_sword(), // ✅ Melee weapon (sword)
+        MovementCommand::Idle,
+        NavigationState::default(),
+        AIState::Idle,
+        AIConfig {
+            retreat_stamina_threshold: 0.2,
+            retreat_health_threshold: 0.0,
+            retreat_duration: 1.5,
+            patrol_direction_change_interval: 3.0,
+        },
+        SpottedEnemies::default(),
+        Attachment {
+            prefab_path: "res://actors/test_sword.tscn".to_string(), // ✅ Sword prefab
+            attachment_point: "RightHand/WeaponAttachment".to_string(),
+            attachment_type: AttachmentType::Weapon,
+        },
+    )).id()
 }
 
 /// Спавн тестового NPC в ECS world (ADR-005: StrategicPosition + PrefabPath)
@@ -433,13 +473,7 @@ fn spawn_test_npc(
             max: 100.0,
             regen_rate: 10.0, // 10 stamina/sec
         },
-        Attacker {
-            attack_cooldown: 1.0,
-            cooldown_timer: 0.0,
-            base_damage: damage,
-            attack_radius: 2.0,
-        },
-        Weapon::default(), // Weapon system (pistol)
+        WeaponStats::ranged_pistol(), // Unified weapon stats (ranged)
         MovementCommand::Idle, // Godot будет читать и выполнять
         NavigationState::default(), // Трекинг достижения navigation target (для PositionChanged events)
         AIState::Idle,

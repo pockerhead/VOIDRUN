@@ -32,7 +32,6 @@ fn spawn_npc_fighter(commands: &mut Commands, position: Vec3, faction_id: u64) -
             Actor { faction_id },
 
             // Combat
-            Attacker::default(),
 
             // AI
             AIState::default(),

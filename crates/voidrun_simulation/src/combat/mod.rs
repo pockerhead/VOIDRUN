@@ -14,16 +14,22 @@
 
 use bevy::prelude::*;
 
-pub mod attacker;
 pub mod damage;
+pub mod melee;
 pub mod stamina;
 pub mod weapon;
+pub mod weapon_stats;
 
 // Re-export основных типов
-pub use attacker::{Attacker, tick_attack_cooldowns};
-pub use damage::{DamageDealt, EntityDied, Dead, DespawnAfter, calculate_damage};
+pub use damage::{DamageDealt, DamageSource, EntityDied, Dead, DespawnAfter, calculate_damage};
+pub use melee::{
+    MeleeAttackState, AttackPhase, MeleeAttackIntent, MeleeAttackStarted, MeleeHit,
+    MeleeAttackType, push_melee_hit, drain_melee_hit_queue,
+    ai_melee_attack_intent, start_melee_attacks, update_melee_attack_phases, process_melee_hits,
+};
 pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
-pub use weapon::{Weapon, WeaponFired, WeaponFireIntent, ProjectileHit};
+pub use weapon::{WeaponFired, WeaponFireIntent, ProjectileHit};
+pub use weapon_stats::{WeaponStats, WeaponType, update_weapon_cooldowns};
 
 /// Combat Plugin (Godot-driven architecture)
 ///
@@ -46,29 +52,37 @@ impl Plugin for CombatPlugin {
             .add_event::<EntityDied>()
             .add_event::<WeaponFireIntent>()
             .add_event::<WeaponFired>()
-            .add_event::<ProjectileHit>();
+            .add_event::<ProjectileHit>()
+            .add_event::<MeleeAttackIntent>()
+            .add_event::<MeleeAttackStarted>()
+            .add_event::<MeleeHit>();
 
         // Регистрация систем в FixedUpdate
         app.add_systems(
             FixedUpdate,
             (
-                // Фаза 1: Cooldowns (melee + weapon)
-                tick_attack_cooldowns,
-                weapon::update_weapon_cooldowns,
+                // Фаза 1: Cooldowns (unified weapon cooldowns)
+                update_weapon_cooldowns,
 
-                // Фаза 2: Weapon fire intent (ECS strategic decision)
-                // Godot tactical validation в process_weapon_fire_intents_main_thread
+                // Фаза 2: Attack intent generation (ECS strategic decision)
+                // Godot tactical validation в process_*_intents_main_thread
                 weapon::ai_weapon_fire_intent,
+                ai_melee_attack_intent,
 
-                // Фаза 3: Damage application (from Godot events + projectiles)
+                // Фаза 3: Attack execution (start attacks from approved intents)
+                start_melee_attacks,
+                update_melee_attack_phases,
+
+                // Фаза 4: Damage application (from Godot events + projectiles + melee hits)
                 damage::apply_damage,
                 weapon::process_projectile_hits,
+                process_melee_hits,
 
-                // Фаза 4: Death handling
+                // Фаза 5: Death handling
                 damage::disable_ai_on_death,
                 damage::despawn_after_timeout,
 
-                // Фаза 5: Stamina management
+                // Фаза 6: Stamina management
                 stamina::regenerate_stamina,
                 stamina::detect_exhaustion,
 

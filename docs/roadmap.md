@@ -95,11 +95,11 @@
 
 ---
 
-## 🚧 Фаза 1.5: Combat Mechanics (ТЕКУЩЕЕ)
+## ✅ Фаза 1.5: Combat Mechanics (ЗАВЕРШЕНО)
 
 **Срок:** 3-5 дней
-**Статус:** 🔴 Melee broken, ranged works
-**Обновлено:** 2025-01-13
+**Статус:** ✅ Melee combat system fully implemented
+**Обновлено:** 2025-10-14
 
 **📋 Детальный план:** [Melee Combat Implementation](implementation/melee-combat-system.md)
 
@@ -117,11 +117,15 @@
 - ✅ Weapon attachment: test_pistol.tscn prefab система работает
 - ✅ Tactical validation: distance/LOS checks (Godot Transform)
 
-**🔴 Что СЛОМАНО:**
-- ❌ Melee combat: `Attacker` компонент есть, но НЕТ системы генерации атак
-- ❌ AI не атакует в melee (нет аналога `ai_weapon_fire_intent` для melee)
-- ❌ Нет melee hitbox collision detection
-- ❌ Нет melee animation trigger системы
+**✅ Melee Combat РАБОТАЕТ:**
+- ✅ `ai_melee_attack_intent` система (генерирует атаки в Combat state)
+- ✅ Melee hitbox collision detection (Area3D polling)
+- ✅ Melee animation trigger система (windup → active → recovery phases)
+- ✅ `MeleeHit` event → `DamageDealt` flow
+- ✅ Anti-spam защита (`has_hit_target` flag — один хит на атаку)
+- ✅ Реакция на урон (`react_to_damage` — разворот к атакующему)
+- ✅ Тактическое отступление (`RetreatFrom` — backpedal + face target)
+- ✅ Возврат в бой после Retreat (сохраняет `from_target`, не теряет врага)
 
 **📋 Что НЕ НАЧАТО:**
 - ⏸️ Player control (можем отложить)
@@ -139,14 +143,25 @@
 
 ### Задачи (приоритет):
 
-**🔥 КРИТИЧНО: Melee Combat System (2-3 дня):**
-- [ ] `MeleeAttackIntent` event (ECS strategic decision)
-- [ ] `ai_melee_attack_intent` система (генерирует intent когда AI в Combat + близко)
-- [ ] `process_melee_attack_intents` система (Godot tactical validation)
-- [ ] `MeleeAttackStarted` event (ECS → Godot)
-- [ ] Melee weapon hitbox (Area3D collision detection)
-- [ ] Melee animation trigger (Godot AnimationPlayer)
-- [ ] `MeleeHit` event → `DamageDealt` (Godot → ECS damage)
+**✅ ЗАВЕРШЕНО: Weapon Architecture Refactoring (2025-01-13):**
+- [x] Создан `WeaponStats` unified component (melee + ranged)
+- [x] Удалён `Attacker` + старый `Weapon` struct
+- [x] Рефакторинг ECS систем (`ai_weapon_fire_intent`, `ai_attack_execution`)
+- [x] Рефакторинг Godot систем (`movement_system`, `simulation_bridge`)
+- [x] `cargo test` компилируется без ошибок
+
+**✅ ЗАВЕРШЕНО: Melee Combat Core (Фаза 2.1, 2025-10-14):**
+- [x] `MeleeAttackIntent` event (ECS strategic decision)
+- [x] `ai_melee_attack_intent` система (генерирует intent когда AI в Combat + близко)
+- [x] `process_melee_attack_intents` система (Godot tactical validation)
+- [x] `MeleeAttackStarted` event (ECS → Godot)
+- [x] Melee weapon hitbox (Area3D collision detection)
+- [x] Melee animation trigger (Godot AnimationPlayer)
+- [x] `MeleeHit` event → `DamageDealt` (Godot → ECS damage)
+- [x] `react_to_damage` система (автоматическая реакция на урон)
+- [x] `RetreatFrom` movement command (тактическое отступление)
+- [x] Правильная дистанция для melee/ranged (без буфера для melee)
+- [x] Возврат в бой после Retreat (сохранение `from_target` в SpottedEnemies)
 
 **🎯 Shield System Implementation (2-3 дня):**
 - [ ] `Shield` component (energy, threshold, regen_rate)

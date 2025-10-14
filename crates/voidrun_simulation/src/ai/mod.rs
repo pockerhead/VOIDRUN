@@ -9,7 +9,7 @@ pub mod simple_fsm;
 pub mod events;
 
 // Re-export основных типов
-pub use simple_fsm::{AIState, AIConfig, SpottedEnemies, ai_react_to_gunfire};
+pub use simple_fsm::{AIState, AIConfig, SpottedEnemies, ai_react_to_gunfire, react_to_damage};
 pub use events::{GodotAIEvent, GodotTransformEvent};
 
 /// AI Plugin
@@ -17,9 +17,10 @@ pub use events::{GodotAIEvent, GodotTransformEvent};
 /// Регистрирует AI системы в FixedUpdate для детерминизма.
 /// Порядок выполнения:
 /// 1. ai_fsm_transitions — обновление FSM state
-/// 2. ai_movement_from_state — конвертация state → MovementInput
-/// 3. ai_attack_execution — генерация AttackStarted событий
-/// 4. simple_collision_resolution — отталкивание NPC друг от друга
+/// 2. ai_movement_from_state — конвертация state → MovementCommand
+/// 3. simple_collision_resolution — отталкивание NPC друг от друга
+///
+/// NOTE: Атаки генерируются через combat systems (ai_melee_attack_intent, ai_weapon_fire_intent)
 pub struct AIPlugin;
 
 impl Plugin for AIPlugin {
@@ -34,10 +35,11 @@ impl Plugin for AIPlugin {
                 sync_strategic_position_from_godot_events, // 0. Event-driven sync (Godot → ECS)
                 simple_fsm::handle_actor_death,     // 1. Обработка смерти → Dead state
                 simple_fsm::update_spotted_enemies, // 2. Обновляем SpottedEnemies из GodotAIEvent
-                simple_fsm::ai_react_to_gunfire,    // 3. AI реакция на звук выстрела (WeaponFired → ActorSpotted)
-                simple_fsm::ai_fsm_transitions,     // 4. FSM transitions на основе SpottedEnemies
-                simple_fsm::ai_movement_from_state, // 5. Конвертация state → MovementCommand
-                simple_fsm::ai_attack_execution,    // 6. Генерация атак
+                simple_fsm::react_to_damage,        // 3. AI реакция на урон (DamageDealt → FollowEntity)
+                simple_fsm::ai_react_to_gunfire,    // 4. AI реакция на звук выстрела (WeaponFired → ActorSpotted)
+                simple_fsm::ai_fsm_transitions,     // 5. FSM transitions на основе SpottedEnemies
+                simple_fsm::ai_movement_from_state, // 6. Конвертация state → MovementCommand
+                // УДАЛЕНО: ai_attack_execution (заменён на ai_melee_attack_intent в combat systems)
                 simple_fsm::simple_collision_resolution, // 7. Отталкивание NPC
             )
                 .chain(), // Последовательное выполнение для детерминизма

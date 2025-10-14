@@ -10,7 +10,18 @@
 
 use bevy::prelude::*;
 use crate::components::{Health, Stamina};
-use crate::combat::Attacker;
+use crate::combat::WeaponStats;
+
+/// Source of damage (для разных эффектов/звуков)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+pub enum DamageSource {
+    /// Melee weapon hit
+    Melee,
+    /// Ranged projectile hit
+    Ranged,
+    /// Environmental (TODO: future)
+    Environmental,
+}
 
 /// Событие: урон нанесен
 ///
@@ -21,7 +32,7 @@ pub struct DamageDealt {
     pub attacker: Entity,
     pub target: Entity,
     pub damage: u32,
-    pub target_died: bool,
+    pub source: DamageSource,
 }
 
 /// Событие: entity умер (health <= 0)
@@ -56,7 +67,7 @@ pub fn apply_damage(
     mut _damage_dealt_events: EventWriter<DamageDealt>,
     mut _entity_died_events: EventWriter<EntityDied>,
     mut _targets: Query<(&mut Health, Option<&Stamina>)>,
-    _attackers: Query<(&Attacker, &Stamina)>,
+    _attackers: Query<(&WeaponStats, &Stamina)>,
 ) {
     // TODO: Читать GodotCombatEvent::WeaponHit events
     // Godot AnimationTree trigger hitbox → WeaponHit { attacker, target } → apply_damage
@@ -192,11 +203,11 @@ mod tests {
             attacker: Entity::PLACEHOLDER,
             target: Entity::PLACEHOLDER,
             damage: 15,
-            target_died: false,
+            source: DamageSource::Melee,
         };
 
         assert_eq!(event.damage, 15);
-        assert!(!event.target_died);
+        assert_eq!(event.source, DamageSource::Melee);
     }
 
     #[test]

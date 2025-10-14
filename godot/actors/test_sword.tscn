@@ -1,0 +1,44 @@
+[gd_scene load_steps=5 format=3 uid="uid://bj2qcb44w60l4"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_7yhec"]
+size = Vector3(0.08, 1.4, 0.08)
+
+[sub_resource type="BoxMesh" id="BoxMesh_xw8ik"]
+size = Vector3(0.1, 0.1, 0.3)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_fqv23"]
+top_radius = 0.04
+bottom_radius = 0.04
+height = 0.4
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_7yhec"]
+radius = 0.1
+height = 1.8
+
+[node name="Sword" type="Node3D"]
+
+[node name="WeaponPlacement" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.13068426, 0)
+
+[node name="Blade" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(0.70710677, 0, 0.70710677, 0, 1, 0, -0.70710677, 0, 0.70710677, 0, 0.74759406, 0)
+mesh = SubResource("BoxMesh_7yhec")
+
+[node name="Guard" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(0.99999994, 0, 0, 0, 1, 0, 0, 0, 0.99999994, 0, 0, 0)
+mesh = SubResource("BoxMesh_xw8ik")
+skeleton = NodePath("../Blade")
+
+[node name="Handle" type="MeshInstance3D" parent="WeaponPlacement"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.24036774, 0)
+mesh = SubResource("CylinderMesh_fqv23")
+
+[node name="Hitbox" type="Area3D" parent="WeaponPlacement"]
+collision_layer = 8
+collision_mask = 2
+monitoring = false
+monitorable = false
+
+[node name="HitboxShape" type="CollisionShape3D" parent="WeaponPlacement/Hitbox"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5817111, 0)
+shape = SubResource("CapsuleShape3D_7yhec")

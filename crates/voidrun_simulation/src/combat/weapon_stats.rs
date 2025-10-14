@@ -108,9 +108,9 @@ impl WeaponStats {
 
             // Melee stats
             attack_radius: 2.0,
-            windup_duration: 0.2,
-            attack_duration: 0.1,
-            recovery_duration: 0.2,
+            windup_duration: 0.3,
+            attack_duration: 0.3,
+            recovery_duration: 0.3,
             parry_window: 0.15,
 
             // Ranged stats (unused для melee)

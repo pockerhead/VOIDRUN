@@ -16,6 +16,13 @@ pub enum MovementCommand {
     MoveToPosition { target: Vec3 },
     /// Следовать за entity (обновлять target каждый frame)
     FollowEntity { target: Entity },
+    /// Отступать от entity (движение назад, но смотреть на target)
+    ///
+    /// Тактическое отступление:
+    /// - Двигаемся в направлении от target (пятиться назад)
+    /// - Rotation направлен НА target (смотрим на врага)
+    /// - NavigationAgent не используется (прямое управление velocity)
+    RetreatFrom { target: Entity },
     /// Остановиться немедленно (сбросить velocity)
     Stop,
 }

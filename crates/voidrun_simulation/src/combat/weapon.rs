@@ -1,61 +1,11 @@
-//! Weapon system - оружие и стрельба
+//! Weapon system - events для ranged combat
 //!
 //! Architecture:
-//! - ECS: Weapon state (cooldown, decisions)
+//! - ECS: WeaponStats (cooldown, decisions) в weapon_stats.rs
 //! - Godot: Aim execution (bone rotation), Fire visual (spawn projectile)
 //! - Events: WeaponFired (ECS→Godot), ProjectileHit (Godot→ECS)
 
 use bevy::prelude::*;
-use crate::Attachment;
-
-/// Компонент оружия (attached к актёру)
-#[derive(Component, Debug, Clone, Reflect)]
-#[require(Attachment)]
-pub struct Weapon {
-    /// Урон за выстрел
-    pub damage: u32,
-
-    /// Cooldown между выстрелами (секунды)
-    pub fire_cooldown: f32,
-
-    /// Текущий cooldown timer (секунды)
-    pub cooldown_timer: f32,
-
-    /// Дальность выстрела (метры)
-    pub range: f32,
-
-    /// Скорость пули (м/с)
-    pub projectile_speed: f32,
-
-    /// Радиус слышимости выстрела (метры)
-    /// Все актёры в этом радиусе слышат звук и реагируют
-    pub hearing_range: f32,
-}
-
-impl Default for Weapon {
-    fn default() -> Self {
-        Self {
-            damage: 10,
-            fire_cooldown: 0.5,
-            cooldown_timer: 0.0,
-            range: 20.0,
-            projectile_speed: 300.0, // 8 м/с (медленнее для видимости)
-            hearing_range: 100.0, // 25м радиус слышимости для стандартного оружия
-        }
-    }
-}
-
-impl Weapon {
-    /// Может ли оружие стрелять (cooldown готов)
-    pub fn can_fire(&self) -> bool {
-        self.cooldown_timer <= 0.0
-    }
-
-    /// Начать cooldown после выстрела
-    pub fn start_cooldown(&mut self) {
-        self.cooldown_timer = self.fire_cooldown;
-    }
-}
 
 // ❌ Projectile НЕ хранится в ECS — только в Godot (tactical layer)
 // Godot полностью владеет lifecycle: spawn, physics, collision, cleanup
@@ -122,17 +72,6 @@ pub struct ProjectileHit {
     pub damage: u32,
 }
 
-/// System: обновление weapon cooldowns
-pub fn update_weapon_cooldowns(
-    mut weapons: Query<&mut Weapon>,
-    time: Res<Time>,
-) {
-    for mut weapon in weapons.iter_mut() {
-        if weapon.cooldown_timer > 0.0 {
-            weapon.cooldown_timer -= time.delta_secs();
-        }
-    }
-}
 
 /// System: AI weapon fire intent (ECS strategic decision)
 ///
@@ -145,7 +84,7 @@ pub fn update_weapon_cooldowns(
 /// - Godot authoritative для tactical validation (distance, line of sight)
 /// - Разделение ответственности: strategic intent vs tactical execution
 pub fn ai_weapon_fire_intent(
-    mut actors: Query<(Entity, &crate::ai::AIState, &mut Weapon)>,
+    mut actors: Query<(Entity, &crate::ai::AIState, &mut crate::combat::WeaponStats)>,
     mut intent_events: EventWriter<WeaponFireIntent>,
 ) {
     use crate::ai::AIState;
@@ -156,8 +95,13 @@ pub fn ai_weapon_fire_intent(
             continue;
         };
 
+        // Только ranged weapons
+        if !weapon.is_ranged() {
+            continue;
+        }
+
         // Проверяем cooldown (strategic constraint)
-        if !weapon.can_fire() {
+        if !weapon.can_attack() {
             continue;
         }
 
@@ -165,7 +109,7 @@ pub fn ai_weapon_fire_intent(
         intent_events.write(WeaponFireIntent {
             shooter: entity,
             target: *target,
-            damage: weapon.damage,
+            damage: weapon.base_damage,
             speed: weapon.projectile_speed,
             max_range: weapon.range,
             hearing_range: weapon.hearing_range,
@@ -208,19 +152,17 @@ pub fn process_projectile_hits(
             let actual_damage = hit.damage.min(health.current);
             health.take_damage(actual_damage);
 
-            let target_died = health.current == 0;
-
             // Генерируем DamageDealt event для визуальных эффектов
             damage_events.write(crate::combat::DamageDealt {
                 attacker: hit.shooter,
                 target: hit.target,
                 damage: actual_damage,
-                target_died,
+                source: crate::combat::DamageSource::Ranged,
             });
 
             crate::log(&format!(
-                "💥 Projectile hit {:?} for {} damage (HP: {}, died: {})",
-                hit.target, actual_damage, health.current, target_died
+                "💥 Projectile hit {:?} for {} damage (HP: {} → {})",
+                hit.target, actual_damage, health.current + actual_damage, health.current
             ));
         }
     }
@@ -231,16 +173,6 @@ pub fn process_projectile_hits(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_weapon_cooldown() {
-        let mut weapon = Weapon::default();
-        assert!(weapon.can_fire());
-
-        weapon.start_cooldown();
-        assert!(!weapon.can_fire());
-        assert_eq!(weapon.cooldown_timer, 0.5);
-    }
 
     #[test]
     fn test_projectile_hit_event() {

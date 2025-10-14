@@ -46,7 +46,7 @@ fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
 /// NavigationState.is_target_reached сбрасывается при новом MovementCommand.
 pub fn process_movement_commands_main_thread(
     mut query: Query<
-        (Entity, &MovementCommand, &mut NavigationState, Option<&voidrun_simulation::combat::Weapon>),
+        (Entity, &MovementCommand, &mut NavigationState, Option<&voidrun_simulation::combat::WeaponStats>),
         Changed<MovementCommand>,
     >,
     visuals: NonSend<VisualRegistry>,
@@ -93,24 +93,49 @@ pub fn process_movement_commands_main_thread(
                     ));
                 }
 
-                let Some(target_node) = visuals.visuals.get(target) else {
+                let Some(target_node) = visuals.visuals.get(&target) else {
                     continue;
                 };
 
                 let target_pos = target_node.get_position();
                 nav_agent.set_target_position(target_pos);
 
-                // Ranged combat: останавливаемся на расстоянии weapon range
-                // Берём weapon.range из ECS компонента или fallback 15.0м
-                const STOP_BUFFER: f32 = 2.0; // Буфер безопасности (не подходим вплотную)
-                let weapon_range = weapon_opt.map(|w| w.range).unwrap_or(15.0);
-                let stop_distance = (weapon_range - STOP_BUFFER).max(0.5); // Минимум 0.5м
+                // Дистанция остановки зависит от типа оружия:
+                // - Melee (attack_radius > 0): подходим вплотную (БЕЗ буфера)
+                // - Ranged (range > 0): держим дистанцию (с буфером безопасности)
+                const RANGED_STOP_BUFFER: f32 = 2.0; // Буфер для ranged оружия
+
+                let (stop_distance, weapon_type) = if let Some(weapon) = weapon_opt {
+                    if weapon.attack_radius > 0.0 {
+                        // Melee weapon — используем attack_radius БЕЗ буфера
+                        (weapon.attack_radius, "melee")
+                    } else {
+                        // Ranged weapon — используем range с буфером
+                        ((weapon.range - RANGED_STOP_BUFFER).max(0.5), "ranged")
+                    }
+                } else {
+                    // Fallback для акторов без оружия
+                    (15.0, "default")
+                };
 
                 nav_agent.set_target_desired_distance(stop_distance);
 
                 voidrun_simulation::log(&format!(
-                    "Entity {:?}: new FollowEntity movement to position {:?} (stop at {:.1}m, weapon_range: {:.1}m)",
-                    entity, target_pos, stop_distance, weapon_range
+                    "Entity {:?}: FollowEntity target {:?} (stop at {:.1}m, type: {})",
+                    entity, target_pos, stop_distance, weapon_type
+                ));
+            }
+            MovementCommand::RetreatFrom { target } => {
+                // RetreatFrom — не используем NavigationAgent (прямое управление velocity)
+                // Просто сбрасываем флаг для consistency
+                nav_state.is_target_reached = false;
+
+                // Устанавливаем NavigationAgent target на текущую позицию (отключаем pathfinding)
+                nav_agent.set_target_position(actor_node.get_position());
+
+                voidrun_simulation::log(&format!(
+                    "Entity {:?}: RetreatFrom {:?} (direct velocity control)",
+                    entity, target
                 ));
             }
             MovementCommand::Stop => {
@@ -118,6 +143,101 @@ pub fn process_movement_commands_main_thread(
                 nav_agent.set_target_position(actor_node.get_position());
             }
         }
+    }
+}
+
+/// Apply RetreatFrom velocity (backpedal while facing target)
+///
+/// Тактическое отступление:
+/// - Двигаемся НАЗАД от target (retreat direction)
+/// - Смотрим НА target (look_at)
+/// - Прямое управление velocity (NavigationAgent не используется)
+pub fn apply_retreat_velocity_main_thread(
+    query: Query<(Entity, &MovementCommand)>,
+    visuals: NonSend<VisualRegistry>,
+    mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
+) {
+    const RETREAT_SPEED: f32 = 3.0; // Отступаем медленнее чем движемся вперёд
+
+    for (entity, command) in query.iter() {
+        let MovementCommand::RetreatFrom { target } = command else {
+            continue;
+        };
+
+        // Get actor node
+        let Some(actor_node) = visuals.visuals.get(&entity).cloned() else {
+            continue;
+        };
+        let mut body = actor_node.cast::<CharacterBody3D>();
+
+        // Get target node
+        let Some(target_node) = visuals.visuals.get(target) else {
+            continue;
+        };
+
+        let current_pos = body.get_global_position();
+        let target_pos = target_node.get_global_position();
+
+        // Вектор ОТ target (direction to retreat)
+        let to_target = target_pos - current_pos;
+        let retreat_direction = -to_target.normalized();
+
+        // Velocity: двигаемся НАЗАД
+        let velocity = Vector3::new(
+            retreat_direction.x * RETREAT_SPEED,
+            body.get_velocity().y, // Сохраняем Y (гравитация)
+            retreat_direction.z * RETREAT_SPEED,
+        );
+
+        // Rotation: смотрим НА target (не в направлении движения!)
+        let look_at_pos = Vector3::new(target_pos.x, body.get_position().y, target_pos.z);
+        body.look_at(look_at_pos);
+
+        // Применяем velocity
+        body.set_velocity(velocity);
+        body.move_and_slide();
+
+        // ✅ Send PositionChanged event EVERY FRAME during retreat
+        let new_pos = body.get_position();
+        transform_events.write(
+            voidrun_simulation::ai::GodotTransformEvent::PositionChanged {
+                entity,
+                position: Vec3::new(new_pos.x, new_pos.y, new_pos.z),
+            },
+        );
+    }
+}
+
+/// Update FollowEntity navigation targets every frame
+///
+/// FollowEntity требует постоянного обновления target_position (target движется).
+/// Эта система работает КАЖДЫЙ КАДР (без Changed<> фильтра).
+pub fn update_follow_entity_targets_main_thread(
+    query: Query<(Entity, &MovementCommand)>,
+    visuals: NonSend<VisualRegistry>,
+) {
+    for (entity, command) in query.iter() {
+        let MovementCommand::FollowEntity { target } = command else {
+            continue;
+        };
+
+        let Some(actor_node) = visuals.visuals.get(&entity) else {
+            continue;
+        };
+
+        let Some(mut nav_agent) =
+            actor_node.try_get_node_as::<NavigationAgent3D>("NavigationAgent3D")
+        else {
+            continue;
+        };
+
+        let Some(target_node) = visuals.visuals.get(target) else {
+            continue;
+        };
+
+        // Обновляем target position каждый кадр (target двигается!)
+        let target_pos = target_node.get_position();
+        nav_agent.set_target_position(target_pos);
     }
 }
 
@@ -168,7 +288,7 @@ pub fn apply_navigation_velocity_main_thread(
         nav_state.can_reach_target = true;
         // Проверяем достигли ли цели (как enemy.gd:36)
         if nav_agent.is_target_reached() {
-            log_every_10_frames(&format!("[Movement] target reached"));
+            log_every_30_frames(&format!("[Movement] target reached"));
             nav_agent.set_velocity(Vector3::ZERO);
             body.set_velocity(Vector3::ZERO);
 
@@ -197,7 +317,7 @@ pub fn apply_navigation_velocity_main_thread(
         let target_pos = nav_agent.get_target_position();
 
         // Диагностика: логируем target, reachable, next waypoint
-        log_every_10_frames(&format!(
+        log_every_30_frames(&format!(
             "[Movement] target: {:?}, reachable: {}, current: {:?} → next: {:?} (dist: {:.2}m)",
             target_pos,
             nav_agent.is_target_reachable(),
@@ -231,11 +351,11 @@ pub fn apply_navigation_velocity_main_thread(
     }
 }
 
-fn log_every_10_frames(message: &str) {
+fn log_every_30_frames(message: &str) {
     static mut FRAME_COUNTER: u32 = 0;
     unsafe {
         FRAME_COUNTER += 1;
-        if FRAME_COUNTER % 10 == 0 {
+        if FRAME_COUNTER % 30 == 0 {
             voidrun_simulation::log(message);
         }
     }

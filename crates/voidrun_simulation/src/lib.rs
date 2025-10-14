@@ -19,7 +19,7 @@ pub mod components;
 // Re-export базовых компонентов для удобства
 pub use ai::{AIConfig, AIPlugin, AIState};
 pub use combat::{
-    calculate_damage, tick_attack_cooldowns, Attacker, CombatPlugin, DamageDealt, Dead, EntityDied,
+    calculate_damage, update_weapon_cooldowns, WeaponStats, WeaponType, CombatPlugin, DamageDealt, Dead, EntityDied,
     Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST,
 };
 pub use components::*;

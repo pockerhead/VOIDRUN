@@ -116,12 +116,18 @@ if let Some(value) = optional {
 - Симуляция работает БЕЗ Godot
 - CI тесты: cargo test (без GPU)
 
-**3. Rust Code Style: Golden Path Way**
+**3. Bevy ECS Best Practices:**
+- Избегай частых archetype transitions (add/remove components)
+- Используй With<>/Without<> вместо Option<&T> где возможно
+- Changed<T> фильтры для реактивных систем
+- **Детали:** [docs/references/bevy-ecs-guide.md](docs/references/bevy-ecs-guide.md)
+
+**4. Rust Code Style: Golden Path Way**
 - let-else вместо if-let для цепочек проверок
 - Линейный код без вложенности
 - Детали: см. раздел "Rust Code Style" ниже
 
-**4. Logging:**
+**5. Logging:**
 ```rust
 // ✅ ПРАВИЛЬНО
 voidrun_simulation::log("message");
@@ -131,7 +137,7 @@ voidrun_simulation::log_error("error");
 godot_print!("message");  // Только для godot-специфичных вещей
 ```
 
-**5. Архитектура здравого смысла:**
+**6. Архитектура здравого смысла:**
 - Код читается как книга
 - Решения обоснованы
 - Performance с умом (измеряй, не гадай)
@@ -145,6 +151,9 @@ godot_print!("message");  // Только для godot-специфичных в
 - [docs/roadmap.md](docs/roadmap.md) — Фазы разработки, текущий статус
 - [docs/architecture/bevy-ecs-design.md](docs/architecture/bevy-ecs-design.md) — Как использовать Bevy ECS
 - [docs/architecture/physics-architecture.md](docs/architecture/physics-architecture.md) — Hybrid ECS/Godot
+
+**REFERENCE DOCS:**
+- [docs/references/bevy-ecs-guide.md](docs/references/bevy-ecs-guide.md) — Comprehensive Bevy ECS reference (как работает под капотом, performance, best practices)
 
 **Design Docs (геймплей, лор, механики):**
 - [docs/design/shield-technology.md](docs/design/shield-technology.md) — Технология щитов (почему ranged + melee сосуществуют)
@@ -208,6 +217,33 @@ if let Some(value) = optional {
 ```
 
 **Правило:** 2+ уровня вложенности → рефактори на let-else + early return
+
+---
+
+## Godot-Rust Quick Reference
+
+**AnimationPlayer:**
+```rust
+// ✅ ПРАВИЛЬНО (godot-rust gdext)
+player.play_ex().name("animation_name".into()).done();
+
+// Можно использовать &str (автоконверсия в StringName):
+player.play_ex().name("melee_swing".into()).done();
+
+// ❌ НЕПРАВИЛЬНО (старый синтаксис)
+player.play("animation_name");  // Не компилируется
+```
+
+**Node queries:**
+```rust
+// Get child node
+let Some(child) = parent_node.try_get_node_as::<Node3D>("ChildName") else {
+    return;
+};
+
+// Get AnimationPlayer
+let anim = node.try_get_node_as::<godot::classes::AnimationPlayer>("AnimationPlayer");
+```
 
 ---
 
