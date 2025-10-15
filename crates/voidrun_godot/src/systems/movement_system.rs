@@ -46,7 +46,12 @@ fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
 /// NavigationState.is_target_reached сбрасывается при новом MovementCommand.
 pub fn process_movement_commands_main_thread(
     mut query: Query<
-        (Entity, &MovementCommand, &mut NavigationState, Option<&voidrun_simulation::combat::WeaponStats>),
+        (
+            Entity,
+            &MovementCommand,
+            &mut NavigationState,
+            Option<&voidrun_simulation::combat::WeaponStats>,
+        ),
         Changed<MovementCommand>,
     >,
     visuals: NonSend<VisualRegistry>,
@@ -250,13 +255,17 @@ pub fn update_follow_entity_targets_main_thread(
 /// NavigationState используется для one-time PositionChanged event (избегаем спама).
 pub fn apply_navigation_velocity_main_thread(
     mut query: Query<
-        (Entity, &mut voidrun_simulation::ai::AIState, &mut NavigationState),
+        (
+            Entity,
+            &mut voidrun_simulation::ai::AIState,
+            &mut NavigationState,
+        ),
         With<voidrun_simulation::Actor>,
     >,
     visuals: NonSend<VisualRegistry>,
     mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
-    const MOVE_SPEED: f32 = 5.0; // метры в секунду
+    const MOVE_SPEED: f32 = 10.0; // метры в секунду
 
     for (entity, mut ai_state, mut nav_state) in query.iter_mut() {
         // actor_node теперь САМ CharacterBody3D (root node из TSCN)
@@ -335,18 +344,183 @@ pub fn apply_navigation_velocity_main_thread(
 
         let local_direction = diff.normalized();
 
-        // Вычисляем velocity в м/с (как enemy.gd line 37)
-        let velocity = Vector3::new(
+        // Вычисляем desired_velocity в м/с (как enemy.gd line 37)
+        let desired_velocity = Vector3::new(
             local_direction.x * MOVE_SPEED,
-            body.get_velocity().y, // Сохраняем Y (гравитация)
+            0.0, // NavigationAgent работает в XZ плоскости (Y=0)
             local_direction.z * MOVE_SPEED,
         );
-        let look_at_pos = Vector3::new(next_pos.x, body.get_position().y, next_pos.z);
-        // Поворачиваем актора в направлении движения (enemy.gd line 71)
-        body.look_at(look_at_pos);
 
-        // Применяем velocity и двигаем (enemy.gd line 84-85)
-        body.set_velocity(velocity);
+        // Передаём desired_velocity в AvoidanceReceiver (для debug логирования)
+        if let Some(mut avoidance_receiver) = body.try_get_node_as::<Node>("AvoidanceReceiver") {
+            // Устанавливаем desired_velocity property (используется в on_velocity_computed для diff)
+            avoidance_receiver.set("desired_velocity", &desired_velocity.to_variant());
+        }
+
+        // КРИТИЧНО: Отправляем desired_velocity в NavigationAgent3D для avoidance расчёта
+        // NavigationServer3D рассчитает safe_velocity с учётом других агентов
+        // и вызовет signal velocity_computed → AvoidanceReceiver → SafeVelocityComputed event
+        nav_agent.set_velocity(desired_velocity);
+
+        // НЕ вызываем body.set_velocity() здесь!
+        // apply_safe_velocity_system прочитает SafeVelocityComputed event и применит safe_velocity
+    }
+}
+
+/// Применение safe_velocity от NavigationAgent3D avoidance
+///
+/// Flow:
+/// 1. apply_navigation_velocity вызвал nav_agent.set_velocity(desired_velocity)
+/// 2. NavigationServer3D рассчитал safe_velocity с avoidance
+/// 3. Signal velocity_computed → AvoidanceReceiver → SafeVelocityComputed event
+/// 4. Эта система читает event и применяет safe_velocity к CharacterBody3D
+///
+/// НОВОЕ: Плавный поворот с динамическим замедлением velocity
+/// - Скорость поворота ФИКСИРОВАННАЯ (ROTATION_SPEED рад/сек независимо от угла)
+/// - Velocity масштабируется косинусом угла (замедление при повороте)
+/// - Текущее направление берётся из Godot transform (не из ECS компонента)
+/// - Использует slerp formula для плавной интерполяции направления
+///
+/// КРИТИЧНО: Запускается ПОСЛЕ apply_navigation_velocity (order matters!)
+pub fn apply_safe_velocity_system(
+    mut events: EventReader<crate::events::SafeVelocityComputed>,
+    ai_query: Query<&voidrun_simulation::ai::AIState>,
+    visuals: NonSend<VisualRegistry>,
+    time: Res<Time>,
+) {
+    use godot::classes::CharacterBody3D;
+
+    // Параметры плавного поворота
+    const ROTATION_SPEED: f32 = 10.0; // рад/сек (фиксированная скорость)
+    const VELOCITY_ANGLE_FACTOR: f32 = 1.0; // степень влияния угла на скорость (1.0 = линейное)
+    const MIN_VELOCITY_SCALE: f32 = 0.3; // минимальная скорость при развороте (30%)
+    const MIN_MOVEMENT_THRESHOLD: f32 = 0.01; // минимальная velocity для rotation
+
+    let delta_time = time.delta_secs();
+
+    for event in events.read() {
+        let Some(actor_node) = visuals.visuals.get(&event.entity).cloned() else {
+            continue;
+        };
+
+        let mut body = actor_node.cast::<CharacterBody3D>();
+
+        // Проверяем AI state — в бою не поворачиваем (weapon aim system уже поворачивает)
+        let Ok(ai_state) = ai_query.get(event.entity) else {
+            continue;
+        };
+
+        let in_combat = matches!(
+            ai_state,
+            voidrun_simulation::ai::AIState::Combat { .. }
+        );
+
+        // Применяем safe_velocity от NavigationAgent3D
+        let safe_vel_godot = Vector3::new(
+            event.safe_velocity.x,
+            body.get_velocity().y, // Сохраняем Y (гравитация)
+            event.safe_velocity.z,
+        );
+
+        // Вычисляем целевое направление из safe_velocity (XZ plane)
+        let safe_vel_xz = Vec3::new(event.safe_velocity.x, 0.0, event.safe_velocity.z);
+        let vel_length = safe_vel_xz.length();
+
+        // Если safe_velocity = 0 но desired_velocity != 0 (цель позади или target reached)
+        // → используем desired_velocity для определения направления поворота
+        let desired_vel_xz = Vec3::new(event.desired_velocity.x, 0.0, event.desired_velocity.z);
+        let desired_length = desired_vel_xz.length();
+
+        let (mut target_direction, should_move) = if vel_length < MIN_MOVEMENT_THRESHOLD {
+            if desired_length > MIN_MOVEMENT_THRESHOLD {
+                // Safe = 0, но desired != 0 → поворачиваемся к desired direction, не двигаемся
+                (desired_vel_xz / desired_length, false)
+            } else {
+                // Нет ни safe, ни desired → ничего не делаем
+                body.set_velocity(safe_vel_godot);
+                body.move_and_slide();
+                continue;
+            }
+        } else {
+            // Нормальное движение: используем safe_velocity
+            (safe_vel_xz / vel_length, true)
+        };
+
+        // В бою НЕ поворачиваемся (weapon aim system уже управляет rotation)
+        let (new_direction, angle_diff) = if in_combat {
+            // В бою: просто применяем velocity, rotation не трогаем
+            (target_direction, 0.0) // angle_diff = 0 → no velocity scaling
+        } else {
+            // Вне боя: плавный поворот к направлению движения
+            let godot_basis = body.get_global_basis();
+            let forward_godot = -godot_basis.col_c(); // Godot forward = -Z axis
+            let current_dir = Vec3::new(forward_godot.x, 0.0, forward_godot.z).normalize();
+
+            // Вычисляем угол между текущим и целевым направлением
+            let dot = current_dir.dot(target_direction).clamp(-1.0, 1.0);
+            let angle_diff = dot.acos(); // radians [0, PI]
+
+            // Константный поворот: поворачиваемся на фиксированный угол ЗА ФРЕЙМ
+            const MAX_ROTATION_PER_FRAME: f32 = 0.2; // радиан за frame (~11.5° за frame при 60fps)
+
+            let new_dir = if angle_diff <= MAX_ROTATION_PER_FRAME {
+                // Маленький угол → поворачиваемся сразу к цели
+                target_direction
+            } else {
+                // Большой угол → вычисляем направление после поворота на MAX_ROTATION_PER_FRAME
+                // Используем формулу: new = current * cos(angle) + perp * sin(angle)
+                // где perp — перпендикулярный вектор в плоскости XZ в сторону target
+
+                // Вычисляем перпендикулярный вектор (в сторону target)
+                // cross product с Y-axis даёт перпендикуляр в XZ plane
+                let cross = Vec3::new(current_dir.z, 0.0, -current_dir.x); // Перпендикуляр к current
+
+                // Определяем знак поворота (по часовой или против)
+                let sign = if cross.dot(target_direction) >= 0.0 { 1.0 } else { -1.0 };
+
+                // Поворот на MAX_ROTATION_PER_FRAME
+                let cos_a = MAX_ROTATION_PER_FRAME.cos();
+                let sin_a = MAX_ROTATION_PER_FRAME.sin() * sign;
+
+                (current_dir * cos_a + cross * sin_a).normalize()
+            };
+
+            (new_dir, angle_diff)
+        };
+
+        // Velocity масштабируется косинусом угла (замедление при повороте)
+        // НО только если НЕ в бою (в бою двигаемся на полной скорости)
+        // cos(0°) = 1.0 (полная скорость), cos(90°) = 0.0 (почти стоп), cos(180°) = -1.0
+        let velocity_scale = angle_diff
+            .cos()
+            .max(0.0) // Clamp negative values (не двигаемся назад)
+            .powf(VELOCITY_ANGLE_FACTOR)
+            .max(MIN_VELOCITY_SCALE);
+
+        let scaled_velocity = Vector3::new(
+            safe_vel_godot.x * velocity_scale,
+            safe_vel_godot.y, // Сохраняем Y (гравитация)
+            safe_vel_godot.z * velocity_scale,
+        );
+
+        // Применяем rotation через look_at (только если НЕ в бою)
+        if !in_combat {
+            let look_at_pos = Vector3::new(
+                body.get_position().x + new_direction.x,
+                body.get_position().y,
+                body.get_position().z + new_direction.z,
+            );
+            body.look_at(look_at_pos);
+        }
+
+        // Применяем velocity только если should_move = true
+        if should_move {
+            body.set_velocity(scaled_velocity);
+        } else {
+            // Не двигаемся, только поворачиваемся
+            body.set_velocity(Vector3::new(0.0, safe_vel_godot.y, 0.0)); // Сохраняем Y для гравитации
+        }
+
         body.move_and_slide();
     }
 }

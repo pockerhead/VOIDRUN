@@ -46,6 +46,7 @@ pub use movement_system::{
     update_follow_entity_targets_main_thread,
     apply_retreat_velocity_main_thread,
     apply_navigation_velocity_main_thread,
+    apply_safe_velocity_system, // NavigationAgent3D avoidance (velocity_computed signal)
     // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
 };
 

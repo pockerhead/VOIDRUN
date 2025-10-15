@@ -10,7 +10,7 @@ pub mod events;
 
 // Re-export основных типов
 pub use simple_fsm::{AIState, AIConfig, SpottedEnemies, ai_react_to_gunfire, react_to_damage};
-pub use events::{GodotAIEvent, GodotTransformEvent};
+pub use events::{GodotAIEvent, GodotTransformEvent, GodotNavigationEvent};
 
 /// AI Plugin
 ///
@@ -25,10 +25,10 @@ pub struct AIPlugin;
 
 impl Plugin for AIPlugin {
     fn build(&self, app: &mut App) {
-        // Регистрируем AI events
+        // Регистрируем AI events (Godot → ECS)
         app.add_event::<GodotAIEvent>();
         app.add_event::<GodotTransformEvent>();
-
+        app.add_event::<GodotNavigationEvent>();
         app.add_systems(
             FixedUpdate,
             (
@@ -56,15 +56,19 @@ pub fn sync_strategic_position_from_godot_events(
     mut transform_events: EventReader<GodotTransformEvent>,
 ) {
     for event in transform_events.read() {
-        let (entity, position) = match event {
+        let (entity, position ) = match event {
             GodotTransformEvent::PostSpawn { entity, position } => {
                 crate::log(&format!("PostSpawn: entity {:?} at {:?}", entity, position));
-                (*entity, *position)
+                (*entity, Some(*position))
             }
-            GodotTransformEvent::PositionChanged { entity, position } => (*entity, *position),
+            GodotTransformEvent::PositionChanged { entity, position } => (*entity, Some(*position))
         };
 
         let Ok(mut strategic_pos) = actors.get_mut(entity) else {
+            continue;
+        };
+
+        let Some(position) = position else {
             continue;
         };
 
@@ -75,5 +79,20 @@ pub fn sync_strategic_position_from_godot_events(
         if strategic_pos.chunk != corrected.chunk || strategic_pos.local_offset != corrected.local_offset {
             *strategic_pos = corrected;
         }
+    }
+}
+
+pub fn handle_navigation_failed(
+    mut actors: Query<(Entity, &mut AIState)>,
+    mut navigation_events: EventReader<GodotNavigationEvent>,
+) {
+    for event in navigation_events.read() {
+        let GodotNavigationEvent::NavigationFailed { entity } = event else {
+            continue;
+        };
+        let Ok((entity, mut state)) = actors.get_mut(*entity) else {
+            continue;
+        };
+        *state = AIState::Idle;
     }
 }

@@ -236,40 +236,40 @@ pub fn create_test_navigation_region_with_obstacles(
     nav_region.add_child(&ground_body.upcast::<Node>());
 
     // 4. Создать несколько StaticBody3D боксов как obstacles (разные размеры)
-    // let obstacles = [
-    //     ("Obstacle1", Vector3::new(10.0, 0.0, 10.0), Vector3::new(2.0, 4.0, 2.0)),
-    //     ("Obstacle2", Vector3::new(-15.0, 0.0, 5.0), Vector3::new(3.0, 4.5, 3.0)),
-    //     ("Obstacle3", Vector3::new(20.0, 0.0, -10.0), Vector3::new(1.5, 4.0, 1.5)),
-    //     ("Obstacle4", Vector3::new(-10.0, 0.0, -15.0), Vector3::new(4.0, 4.0, 2.0)),
-    //     ("Obstacle5", Vector3::new(-0.0, 0.0, -0.0), Vector3::new(4.0, 4.0, 2.0)),
+    let obstacles = [
+        // ("Obstacle1", Vector3::new(10.0, 0.0, 10.0), Vector3::new(2.0, 4.0, 2.0)),
+        // ("Obstacle2", Vector3::new(-15.0, 0.0, 5.0), Vector3::new(3.0, 4.5, 3.0)),
+        // ("Obstacle3", Vector3::new(20.0, 0.0, -10.0), Vector3::new(1.5, 4.0, 1.5)),
+        // ("Obstacle4", Vector3::new(-10.0, 0.0, -15.0), Vector3::new(4.0, 4.0, 2.0)),
+        ("Obstacle5", Vector3::new(-0.0, 0.0, -0.0), Vector3::new(4.0, 4.0, 4.0)),
 
-    // ];
+    ];
 
-    // for (name, pos, size) in obstacles.iter() {
-    //     let mut obstacle = StaticBody3D::new_alloc();
-    //     obstacle.set_name(*name);
-    //     obstacle.set_position(*pos);
+    for (name, pos, size) in obstacles.iter() {
+        let mut obstacle = StaticBody3D::new_alloc();
+        obstacle.set_name(*name);
+        obstacle.set_position(*pos);
 
-    //     // CollisionShape3D
-    //     let mut collision = CollisionShape3D::new_alloc();
-    //     let mut shape = BoxShape3D::new_gd();
-    //     shape.set_size(*size);
-    //     collision.set_shape(&shape.upcast::<godot::classes::Shape3D>());
-    //     obstacle.add_child(&collision.upcast::<Node>());
+        // CollisionShape3D
+        let mut collision = CollisionShape3D::new_alloc();
+        let mut shape = BoxShape3D::new_gd();
+        shape.set_size(*size);
+        collision.set_shape(&shape.upcast::<godot::classes::Shape3D>());
+        obstacle.add_child(&collision.upcast::<Node>());
 
-    //     // Visual mesh (красный box)
-    //     let mut visual = MeshInstance3D::new_alloc();
-    //     let mut box_mesh = BoxMesh::new_gd();
-    //     box_mesh.set_size(*size);
-    //     visual.set_mesh(&box_mesh.upcast::<Mesh>());
+        // Visual mesh (красный box)
+        let mut visual = MeshInstance3D::new_alloc();
+        let mut box_mesh = BoxMesh::new_gd();
+        box_mesh.set_size(*size);
+        visual.set_mesh(&box_mesh.upcast::<Mesh>());
 
-    //     let mut mat = StandardMaterial3D::new_gd();
-    //     mat.set_albedo(Color::from_rgb(0.8, 0.2, 0.2)); // Красные obstacles
-    //     visual.set_surface_override_material(0, &mat.upcast::<Material>());
-    //     obstacle.add_child(&visual.upcast::<Node>());
+        let mut mat = StandardMaterial3D::new_gd();
+        mat.set_albedo(Color::from_rgb(0.8, 0.2, 0.2)); // Красные obstacles
+        visual.set_surface_override_material(0, &mat.upcast::<Material>());
+        obstacle.add_child(&visual.upcast::<Node>());
 
-    //     nav_region.add_child(&obstacle.upcast::<Node>());
-    // }
+        nav_region.add_child(&obstacle.upcast::<Node>());
+    }
 
     voidrun_simulation::log("🏗️ Test NavigationRegion3D created with ground + 4 obstacles");
 

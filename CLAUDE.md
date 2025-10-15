@@ -131,10 +131,11 @@ if let Some(value) = optional {
 ```rust
 // ✅ ПРАВИЛЬНО
 voidrun_simulation::log("message");
-voidrun_simulation::log_error("error");
+voidrun_simulation::log_error("error message");
 
 // ❌ НЕПРАВИЛЬНО
-godot_print!("message");  // Только для godot-специфичных вещей
+godot_print!("message"); 
+godot_error!("error message")
 ```
 
 **6. Архитектура здравого смысла:**

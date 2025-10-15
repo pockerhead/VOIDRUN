@@ -1,6 +1,7 @@
-[gd_scene load_steps=12 format=3 uid="uid://b11myb8dfjdc6"]
+[gd_scene load_steps=17 format=3 uid="uid://b11myb8dfjdc6"]
 
 [ext_resource type="Shape3D" uid="uid://chinlvaytthss" path="res://resources/shapes/vision_con.tres" id="1_6ks1i"]
+[ext_resource type="PackedScene" uid="uid://bj2qcb44w60l4" path="res://actors/test_sword.tscn" id="2_qev7w"]
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_x3k1a"]
 radius = 0.2
@@ -9,6 +10,9 @@ height = 0.6
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_qev7w"]
 radius = 100.0
 
+[sub_resource type="BoxMesh" id="BoxMesh_x3k1a"]
+size = Vector3(0.045, 0.055, 0.135)
+
 [sub_resource type="BoxMesh" id="BoxMesh_6ks1i"]
 size = Vector3(0.715, 0.945, 0.475)
 
@@ -16,40 +20,9 @@ size = Vector3(0.715, 0.945, 0.475)
 radius = 0.1
 height = 0.3
 
-[sub_resource type="BoxMesh" id="BoxMesh_x3k1a"]
-size = Vector3(0.045, 0.055, 0.135)
-
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.4
 height = 1.8
-
-[sub_resource type="Animation" id="Animation_r8356"]
-resource_name = "melee_windup"
-length = 0.3
-tracks/0/type = "value"
-tracks/0/imported = false
-tracks/0/enabled = true
-tracks/0/path = NodePath("RightHand:position")
-tracks/0/interp = 1
-tracks/0/loop_wrap = true
-tracks/0/keys = {
-"times": PackedFloat32Array(0, 0.3),
-"transitions": PackedFloat32Array(0.435275, 1),
-"update": 0,
-"values": [Vector3(-0.5, 0, 0), Vector3(-0.59, 0.495, 0.155)]
-}
-tracks/1/type = "value"
-tracks/1/imported = false
-tracks/1/enabled = true
-tracks/1/path = NodePath("RightHand:rotation")
-tracks/1/interp = 1
-tracks/1/loop_wrap = true
-tracks/1/keys = {
-"times": PackedFloat32Array(0, 0.3),
-"transitions": PackedFloat32Array(0.4829661, 1),
-"update": 0,
-"values": [Vector3(0, 0, 0), Vector3(0.47996554, 0, 0.38397244)]
-}
 
 [sub_resource type="Animation" id="Animation_dyjn2"]
 length = 0.001
@@ -106,11 +79,129 @@ tracks/1/keys = {
 "values": [Vector3(0.47996554, 0, 0.38397244), Vector3(-2.3823745, 0.6981317, -1.0559242)]
 }
 
+[sub_resource type="Animation" id="Animation_r8356"]
+resource_name = "melee_windup"
+length = 0.3
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.435275, 1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0), Vector3(-0.59, 0.495, 0.155)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.4829661, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0.47996554, 0, 0.38397244)]
+}
+
+[sub_resource type="Animation" id="Animation_6ks1i"]
+resource_name = "melee_recovery"
+length = 0.2
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.2),
+"transitions": PackedFloat32Array(0.5176324, 1),
+"update": 0,
+"values": [Vector3(0.01, -0.14, -0.63), Vector3(-0.5, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.2),
+"transitions": PackedFloat32Array(0.5176324, 1),
+"update": 0,
+"values": [Vector3(-2.3823745, 0.6981317, -1.0559242), Vector3(0, 0, 0)]
+}
+
 [sub_resource type="AnimationLibrary" id="AnimationLibrary_50585"]
 _data = {
 &"RESET": SubResource("Animation_dyjn2"),
+&"melee_recovery": SubResource("Animation_6ks1i"),
 &"melee_swing": SubResource("Animation_cnsat"),
 &"melee_windup": SubResource("Animation_r8356")
+}
+
+[sub_resource type="Animation" id="Animation_50585"]
+resource_name = "melee_parry"
+length = 0.2
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.099082984, 0.2),
+"transitions": PackedFloat32Array(0.43527532, 2.639016, 1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0), Vector3(-0.5, 0.44433093, -0.63288087), Vector3(-0.5, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.099082984, 0.2),
+"transitions": PackedFloat32Array(0.5946036, 2.219139, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0.42816666, 0.104637474, -1.1240165), Vector3(0, 0, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_0oe08"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_kyktt"]
+_data = {
+&"RESET": SubResource("Animation_0oe08"),
+&"melee_parry": SubResource("Animation_50585")
 }
 
 [node name="Actor" type="CharacterBody3D"]
@@ -134,28 +225,32 @@ shape = ExtResource("1_6ks1i")
 shape = SubResource("CylinderShape3D_qev7w")
 disabled = true
 
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.078, 0.064743936, -0.159)
+mesh = SubResource("BoxMesh_x3k1a")
+skeleton = NodePath("../..")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.064743936, -0.159)
+mesh = SubResource("BoxMesh_x3k1a")
+skeleton = NodePath("../..")
+
 [node name="Torso" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.00038683414, 0, 0)
 mesh = SubResource("BoxMesh_6ks1i")
 
 [node name="RightHand" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.5, 0, 0)
+transform = Transform3D(1, 0, 0, 0, 0.99999994, 0, 0, 0, 1.0000001, -0.5, 0, 0)
 mesh = SubResource("CapsuleMesh_6ks1i")
 
 [node name="WeaponAttachment" type="Node3D" parent="RightHand"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.016784549, 0, 0.0072513223)
 
+[node name="Sword" parent="RightHand/WeaponAttachment" instance=ExtResource("2_qev7w")]
+
 [node name="LeftHand" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 0, 0)
 mesh = SubResource("CapsuleMesh_6ks1i")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.866, -0.159)
-mesh = SubResource("BoxMesh_x3k1a")
-
-[node name="MeshInstance3D2" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.078, 0.866, -0.159)
-mesh = SubResource("BoxMesh_x3k1a")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
@@ -165,3 +260,10 @@ shape = SubResource("CapsuleShape3D_body")
 libraries = {
 &"": SubResource("AnimationLibrary_50585")
 }
+autoplay = "RESET"
+
+[node name="DefenceAnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_kyktt")
+}
+autoplay = "RESET"

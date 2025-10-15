@@ -108,10 +108,16 @@ pub fn process_melee_attack_intents_main_thread(
 /// - Idle → (no action, state removed by ECS)
 ///
 /// Uses `Changed<MeleeAttackState>` to react only when phase changes.
+///
+/// **Animation speed adjustment:**
+/// Dynamically adjusts AnimationPlayer speed_scale to match weapon timings.
+/// This allows different weapon types to have different attack speeds without
+/// creating separate animation files.
 pub fn execute_melee_attacks_main_thread(
     query: Query<(Entity, &MeleeAttackState), Changed<MeleeAttackState>>,
     visuals: NonSend<VisualRegistry>,
     attachments: NonSend<AttachmentRegistry>,
+    weapons: Query<&WeaponStats>,
 ) {
     for (entity, attack_state) in query.iter() {
         // Get attacker node
@@ -128,6 +134,11 @@ pub fn execute_melee_attacks_main_thread(
             continue;
         };
 
+        // Get weapon stats for animation speed calculation
+        let Ok(weapon) = weapons.get(entity) else {
+            continue;
+        };
+
         // Get AnimationPlayer for triggering animations
         let attacker_node = visuals.visuals.get(&entity).unwrap();
         let anim_player = attacker_node
@@ -139,13 +150,18 @@ pub fn execute_melee_attacks_main_thread(
 
         // Handle phase transitions
         match &attack_state.phase {
-            AttackPhase::Windup { .. } => {
-                // Trigger windup animation
+            AttackPhase::Windup { duration } => {
+                // Trigger windup animation with dynamic speed
                 if let Some(mut player) = anim_player {
+                    let anim_length = get_animation_length(&mut player, "melee_windup");
+                    let speed_scale = anim_length / duration;
+
+                    player.set_speed_scale(speed_scale);
                     player.play_ex().name("melee_windup").done();
+
                     voidrun_simulation::log(&format!(
-                        "▶️ Godot: Playing 'melee_windup' animation (entity: {:?})",
-                        entity
+                        "▶️ Godot: Playing 'melee_windup' (entity: {:?}, duration: {:.2}s, speed: {:.2}x)",
+                        entity, duration, speed_scale
                     ));
                 } else {
                     voidrun_simulation::log(&format!(
@@ -153,36 +169,46 @@ pub fn execute_melee_attacks_main_thread(
                         entity
                     ));
                 }
-                voidrun_simulation::log(&format!(
-                    "🗡️ Godot: Melee windup started (entity: {:?})",
-                    entity
-                ));
             }
 
-            AttackPhase::Active { .. } => {
+            AttackPhase::Active { duration } => {
                 // Trigger swing animation + enable hitbox
                 if let Some(mut player) = anim_player {
+                    let anim_length = get_animation_length(&mut player, "melee_swing");
+                    let speed_scale = anim_length / duration;
+
+                    player.set_speed_scale(speed_scale);
                     player.play_ex().name("melee_swing").done();
+
+                    voidrun_simulation::log(&format!(
+                        "⚔️ Godot: Playing 'melee_swing' (entity: {:?}, duration: {:.2}s, speed: {:.2}x)",
+                        entity, duration, speed_scale
+                    ));
                 }
                 enable_weapon_hitbox(&weapon_attachment, true);
-                voidrun_simulation::log(&format!(
-                    "⚔️ Godot: Melee active phase - hitbox enabled (entity: {:?})",
-                    entity
-                ));
             }
 
-            AttackPhase::Recovery { .. } => {
-                // Disable hitbox (animation continues playing)
+            AttackPhase::Recovery { duration } => {
+                // Trigger recovery animation + disable hitbox
+                if let Some(mut player) = anim_player {
+                    let anim_length = get_animation_length(&mut player, "melee_recovery");
+                    let speed_scale = anim_length / duration;
+
+                    player.set_speed_scale(speed_scale);
+                    player.play_ex().name("melee_recovery").done();
+
+                    voidrun_simulation::log(&format!(
+                        "🛡️ Godot: Playing 'melee_recovery' (entity: {:?}, duration: {:.2}s, speed: {:.2}x)",
+                        entity, duration, speed_scale
+                    ));
+                }
                 enable_weapon_hitbox(&weapon_attachment, false);
-                voidrun_simulation::log(&format!(
-                    "🛡️ Godot: Melee recovery phase - hitbox disabled (entity: {:?})",
-                    entity
-                ));
             }
 
             AttackPhase::Idle => {
                 // Reset to idle pose
                 if let Some(mut player) = anim_player {
+                    player.set_speed_scale(1.0); // Reset speed to normal
                     player.play_ex().name("RESET").done();
                 }
             }
@@ -268,6 +294,26 @@ pub fn poll_melee_hitboxes_main_thread(
             }
         }
     }
+}
+
+/// Get animation length from AnimationPlayer.
+///
+/// Returns the length of the specified animation in seconds.
+/// Falls back to 1.0 if animation not found.
+fn get_animation_length(player: &mut Gd<godot::classes::AnimationPlayer>, anim_name: &str) -> f32 {
+    // Get animation library
+    let Some(lib) = player.get_animation_library("") else {
+        voidrun_simulation::log(&format!("⚠️ Godot: No default animation library found"));
+        return 1.0;
+    };
+
+    // Get animation from library
+    let Some(anim) = lib.get_animation(anim_name) else {
+        voidrun_simulation::log(&format!("⚠️ Godot: Animation '{}' not found", anim_name));
+        return 1.0;
+    };
+
+    anim.get_length() as f32
 }
 
 /// Enable/disable weapon hitbox (Area3D monitoring).

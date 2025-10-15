@@ -14,7 +14,7 @@ use crate::systems::{VisualRegistry, AttachmentRegistry};
 ///
 /// NAMING: `_main_thread` суффикс = Godot API calls (NonSend resources)
 pub fn attach_prefabs_main_thread(
-    query: Query<(Entity, &Attachment), Added<Attachment>>,
+    query: Query<(Entity, &Attachment), Changed<Attachment>>,
     visuals: NonSend<VisualRegistry>,
     mut attachments: NonSendMut<AttachmentRegistry>,
 ) {
@@ -60,7 +60,7 @@ fn attach_single_prefab(
 ) {
     // 1. Найти host node
     let Some(host_node) = visuals.visuals.get(&entity) else {
-        godot_warn!("attach_prefab: entity {:?} not in VisualRegistry", entity);
+        voidrun_simulation::log_error(&format!("attach_prefab: entity {:?} not in VisualRegistry", entity));
         return;
     };
 

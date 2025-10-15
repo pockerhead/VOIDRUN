@@ -11,7 +11,7 @@ use bevy::prelude::*;
 /// - ActorSpotted: враг вошёл в VisionCone
 /// - ActorLost: враг вышел из VisionCone
 #[derive(Event, Debug, Clone)]
-pub enum         GodotAIEvent {
+pub enum GodotAIEvent {
     /// Враг обнаружен (entered VisionCone)
     ActorSpotted {
         /// Entity наблюдателя (у кого VisionCone)
@@ -45,5 +45,17 @@ pub enum GodotTransformEvent {
     PositionChanged {
         entity: Entity,
         position: Vec3, // Новая позиция после движения
+    },
+}
+
+/// Navigation события от Godot
+///
+/// ADR-005: Godot authoritative для Navigation, ECS для StrategicPosition.
+/// Event-driven sync вместо periodic polling.
+#[derive(Event, Debug, Clone)]
+pub enum GodotNavigationEvent {
+    /// Навигация до цели невозможна
+    NavigationFailed {
+        entity: Entity,
     },
 }

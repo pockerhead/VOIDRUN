@@ -250,6 +250,8 @@ pub fn ai_fsm_transitions(
                         let offset = Vec3::new(angle.cos() * distance, 0.0, angle.sin() * distance);
                         let patrol_target = current_world_pos + offset;
 
+                        // для теста генерируем точку всегда с -z от текущей позиции
+                        // let patrol_target = Vec3::new(current_world_pos.x, current_world_pos.y, -current_world_pos.z);
                         Some(patrol_target)
                     } else {
                         *target_position

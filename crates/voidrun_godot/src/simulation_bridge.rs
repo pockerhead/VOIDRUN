@@ -1,20 +1,18 @@
-use godot::prelude::*;
-use godot::classes::{
-    Node3D, INode3D, MeshInstance3D, PlaneMesh, SphereMesh,
-    StandardMaterial3D, DirectionalLight3D,
-    Node, Mesh, Material, CpuParticles3D,
-    NavigationRegion3D,
-    light_3d::Param as LightParam,
-    base_material_3d::{ShadingMode as BaseMaterial3DShading, Flags as BaseMaterial3DFlags},
-    cpu_particles_3d::{EmissionShape, Parameter as CpuParam},
-};
-use voidrun_simulation::*;
-use voidrun_simulation::combat::WeaponStats;
 use crate::camera::rts_camera::RTSCamera3D;
-use crate::systems::{VisualRegistry, AttachmentRegistry, SceneRoot, VisionTracking};
-use voidrun_simulation::ai::{AIState, SpottedEnemies};
+use crate::systems::{AttachmentRegistry, SceneRoot, VisionTracking, VisualRegistry};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use godot::classes::Timer;
+use godot::classes::{
+    base_material_3d::{Flags as BaseMaterial3DFlags, ShadingMode as BaseMaterial3DShading},
+    cpu_particles_3d::{EmissionShape, Parameter as CpuParam},
+    light_3d::Param as LightParam,
+    CanvasLayer, CpuParticles3D, DirectionalLight3D, INode3D, Label, Material, Mesh,
+    MeshInstance3D, NavigationRegion3D, Node, Node3D, PlaneMesh, SphereMesh, StandardMaterial3D,
+};
+use godot::prelude::*;
+use voidrun_simulation::ai::{AIState, SpottedEnemies};
+use voidrun_simulation::combat::WeaponStats;
+use voidrun_simulation::*;
 
 /// Мост между Godot и Rust ECS симуляцией (100% Rust, no GDScript)
 ///
@@ -28,6 +26,9 @@ pub struct SimulationBridge {
 
     /// Bevy ECS App (симуляция + NonSend visual registries)
     simulation: Option<bevy::app::App>,
+
+    /// FPS label для on-screen display
+    fps_label: Option<Gd<Label>>,
 }
 
 #[godot_api]
@@ -36,6 +37,7 @@ impl INode3D for SimulationBridge {
         Self {
             base,
             simulation: None,
+            fps_label: None,
         }
     }
 
@@ -54,6 +56,9 @@ impl INode3D for SimulationBridge {
         // 3. Создаём camera
         self.create_camera();
 
+        // 3.5 Создаём FPS counter UI
+        self.create_fps_label();
+
         // 4. Инициализируем ECS симуляцию
         let mut app = create_headless_app(42);
         app.add_plugins(SimulationPlugin);
@@ -71,58 +76,77 @@ impl INode3D for SimulationBridge {
 
         // 4.3 Регистрируем visual sync systems (_main_thread = Godot API)
         use crate::systems::{
-            spawn_actor_visuals_main_thread,
-            sync_health_labels_main_thread,
-            sync_stamina_labels_main_thread,
-            sync_ai_state_labels_main_thread,
-            disable_collision_on_death_main_thread,
-            despawn_actor_visuals_main_thread,
+            apply_navigation_velocity_main_thread,
+            apply_retreat_velocity_main_thread,
+            apply_safe_velocity_system, // NavigationAgent3D avoidance
+                                        // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
             // УДАЛЕНО: sync_transforms_main_thread (ADR-005)
             attach_prefabs_main_thread,
+            despawn_actor_visuals_main_thread,
             detach_prefabs_main_thread,
-            poll_vision_cones_main_thread,
-            weapon_aim_main_thread,
-            process_weapon_fire_intents_main_thread,
-            weapon_fire_main_thread,
-            process_godot_projectile_hits,
-            process_melee_attack_intents_main_thread,
+            disable_collision_on_death_main_thread,
             execute_melee_attacks_main_thread,
             poll_melee_hitboxes_main_thread,
+            poll_vision_cones_main_thread,
+            process_godot_projectile_hits,
+            process_melee_attack_intents_main_thread,
             process_movement_commands_main_thread,
+            process_weapon_fire_intents_main_thread,
+            spawn_actor_visuals_main_thread,
+            sync_ai_state_labels_main_thread,
+            sync_health_labels_main_thread,
+            sync_stamina_labels_main_thread,
             update_follow_entity_targets_main_thread,
-            apply_retreat_velocity_main_thread,
-            apply_navigation_velocity_main_thread,
-            // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
+            weapon_aim_main_thread,
+            weapon_fire_main_thread,
         };
 
+        // 3. Регистрируем Godot tactical layer events
+        app.add_event::<crate::events::SafeVelocityComputed>();
 
-        // 3. Sync (Changed<T> → обновление визуалов) + Vision polling + Weapon systems + Movement
+        // 4. Sync (Changed<T> → обновление визуалов) + Vision polling + Weapon systems + Movement
+        // ВАЖНО: Разделяем на две цепочки (tuple size limit = 16)
+        // КРИТИЧНО: attach_prefabs ПОСЛЕ spawn_actor_visuals (иначе entity не в VisualRegistry!)
         app.add_systems(
-            bevy::prelude::Update,
+            bevy::prelude::Main,
             (
                 spawn_actor_visuals_main_thread,
                 attach_prefabs_main_thread,
                 detach_prefabs_main_thread,
-                // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven в apply_navigation_velocity)
-                poll_vision_cones_main_thread,    // VisionCone → GodotAIEvent
-                process_movement_commands_main_thread, // MovementCommand → NavigationAgent3D
+            )
+                .chain(),
+        );
+
+        app.add_systems(
+            bevy::prelude::Update,
+            (
+                apply_navigation_velocity_main_thread, // nav_agent.set_velocity(desired) → velocity_computed signal
+                apply_safe_velocity_system, // SafeVelocityComputed event → CharacterBody3D (AFTER nav velocity)
+            )
+                .chain(),
+        );
+
+        // Вторая цепочка (labels + death handling)
+        app.add_systems(
+            bevy::prelude::Update,
+            (
+                poll_vision_cones_main_thread,            // VisionCone → GodotAIEvent
+                process_movement_commands_main_thread,    // MovementCommand → NavigationAgent3D
                 update_follow_entity_targets_main_thread, // Update FollowEntity targets every frame
-                apply_retreat_velocity_main_thread, // RetreatFrom → backpedal + face target
-                apply_navigation_velocity_main_thread, // NavigationAgent → CharacterBody + PositionChanged event
-                weapon_aim_main_thread,           // Aim RightHand at target
-                process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
-                weapon_fire_main_thread,          // WeaponFired → spawn GodotProjectile
-                                                  // Projectile physics → GodotProjectile::_physics_process
-                process_godot_projectile_hits,    // Godot queue → ECS ProjectileHit events
-                process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
-                execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox
-                poll_melee_hitboxes_main_thread,   // Poll hitbox overlaps during Active phase → MeleeHit events
+                apply_retreat_velocity_main_thread,       // RetreatFrom → backpedal + face target
                 sync_health_labels_main_thread,
                 sync_stamina_labels_main_thread,
                 sync_ai_state_labels_main_thread,
                 disable_collision_on_death_main_thread, // Отключение collision + gray + DespawnAfter
                 despawn_actor_visuals_main_thread, // Удаление Godot nodes для despawned entities
-            ).chain(),
+                weapon_aim_main_thread,            // Aim RightHand at target
+                process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
+                weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
+                process_godot_projectile_hits,           // Godot queue → ECS ProjectileHit events
+                process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
+                execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox
+                poll_melee_hitboxes_main_thread, // Poll hitbox overlaps during Active phase → MeleeHit events
+            ),
         );
 
         // 5. Создаём маркер для отложенного спавна NPC (через 5 секунд)
@@ -137,10 +161,29 @@ impl INode3D for SimulationBridge {
     }
 
     fn process(&mut self, delta: f64) {
+        // FPS counter (update label)
+        static mut FPS_TIMER: f32 = 0.0;
+        static mut FRAME_COUNT: u32 = 0;
+        unsafe {
+            FPS_TIMER += delta as f32;
+            FRAME_COUNT += 1;
+
+            if FPS_TIMER >= 0.5 {
+                // Обновляем каждые 0.5 сек
+                let fps = FRAME_COUNT as f32 / FPS_TIMER;
+                if let Some(mut label) = self.fps_label.as_mut() {
+                    label.set_text(&format!("FPS: {:.0}", fps));
+                }
+                FPS_TIMER = 0.0;
+                FRAME_COUNT = 0;
+            }
+        }
+
         // Обновляем симуляцию
         if let Some(app) = &mut self.simulation {
             // Передаём delta time в Bevy (для movement system)
-            app.world_mut().insert_resource(crate::systems::GodotDeltaTime(delta as f32));
+            app.world_mut()
+                .insert_resource(crate::systems::GodotDeltaTime(delta as f32));
             app.update(); // ECS systems выполнятся, включая attach/detach_prefabs_main_thread
         }
 
@@ -153,7 +196,10 @@ impl INode3D for SimulationBridge {
                     DEBUG_TIMER = 0.0;
 
                     let world = app.world_mut();
-                    let mut query = world.query::<(bevy::prelude::Entity, &AIState, &Actor, &Health, &Stamina)>();
+                    let mut query =
+                        world
+                            .query::<(bevy::prelude::Entity, &AIState, &Actor, &Health, &Stamina)>(
+                            );
 
                     for (entity, state, actor, health, stamina) in query.iter(world) {
                         voidrun_simulation::log(&format!("DEBUG: Entity {:?} (faction {}) HP:{}/{} Stamina:{:.0}/{:.0} state = {:?}",
@@ -173,12 +219,39 @@ impl INode3D for SimulationBridge {
 
 #[godot_api]
 impl SimulationBridge {
+    /// Записать SafeVelocityComputed event в ECS (вызывается из AvoidanceReceiver)
+    ///
+    /// Flow:
+    /// 1. NavigationAgent3D рассчитал safe_velocity с avoidance
+    /// 2. Signal velocity_computed → AvoidanceReceiver::on_velocity_computed
+    /// 3. AvoidanceReceiver вызывает этот метод
+    /// 4. apply_safe_velocity_system читает event и применяет к CharacterBody3D
+    pub fn write_safe_velocity_event(
+        &mut self,
+        entity: bevy::prelude::Entity,
+        safe_velocity: bevy::prelude::Vec3,
+        desired_velocity: bevy::prelude::Vec3,
+    ) {
+        let Some(app) = &mut self.simulation else {
+            return;
+        };
+
+        app.world_mut()
+            .send_event(crate::events::SafeVelocityComputed {
+                entity,
+                safe_velocity,
+                desired_velocity,
+            });
+    }
+
     /// Создать NavigationRegion3D + NavMesh (baking из SceneTree children)
     ///
     /// TEST: Проверяем что NavMesh запекается из StaticBody3D/CSGBox3D children,
     /// а не из процедурной геометрии (для будущего chunk building).
     fn create_navigation_region(&mut self) {
-        use crate::chunk_navmesh::{create_test_navigation_region_with_obstacles, NavMeshBakingParams};
+        use crate::chunk_navmesh::{
+            create_test_navigation_region_with_obstacles, NavMeshBakingParams,
+        };
 
         // 1. Создаём параметры NavMesh baking
         let mut params = NavMeshBakingParams::default();
@@ -191,7 +264,8 @@ impl SimulationBridge {
         let mut nav_region = create_test_navigation_region_with_obstacles(&params);
 
         // 3. Добавляем NavigationRegion3D в сцену ПЕРЕД baking
-        self.base_mut().add_child(&nav_region.clone().upcast::<Node>());
+        self.base_mut()
+            .add_child(&nav_region.clone().upcast::<Node>());
 
         voidrun_simulation::log("🔧 Baking NavMesh from SceneTree (StaticBody3D children)...");
 
@@ -223,9 +297,13 @@ impl SimulationBridge {
                 ));
 
                 if polygon_count == 0 {
-                    voidrun_simulation::log_error("❌ WARNING: NavMesh has 0 polygons! Check geometry/parameters");
+                    voidrun_simulation::log_error(
+                        "❌ WARNING: NavMesh has 0 polygons! Check geometry/parameters",
+                    );
                 } else {
-                    voidrun_simulation::log_error("🎉 NavMesh baking SUCCESS - physical objects detected!");
+                    voidrun_simulation::log_error(
+                        "🎉 NavMesh baking SUCCESS - physical objects detected!",
+                    );
                 }
             } else {
                 voidrun_simulation::log_error("❌ ERROR: Failed to bake NavMesh!");
@@ -239,7 +317,9 @@ impl SimulationBridge {
         // Запускаем timer
         timer.start();
 
-        voidrun_simulation::log_error("✅ NavigationRegion3D ready, baking in progress (check in 2 sec)...");
+        voidrun_simulation::log_error(
+            "✅ NavigationRegion3D ready, baking in progress (check in 2 sec)...",
+        );
     }
 
     /// Создать lights (directional sun)
@@ -253,9 +333,7 @@ impl SimulationBridge {
 
     /// Создать RTS camera (WASD + mouse orbit + scroll zoom)
     fn create_camera(&mut self) {
-        let mut camera = Gd::<RTSCamera3D>::from_init_fn(|base| {
-            RTSCamera3D::init(base)
-        });
+        let mut camera = Gd::<RTSCamera3D>::from_init_fn(|base| RTSCamera3D::init(base));
 
         // Начальная позиция камеры
         camera.set_position(Vector3::new(0.0, 5.0, 0.0));
@@ -264,6 +342,34 @@ impl SimulationBridge {
         self.base_mut().add_child(&camera.upcast::<Node>());
 
         voidrun_simulation::log("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
+    }
+
+    /// Создать FPS counter label (top-right corner)
+    fn create_fps_label(&mut self) {
+        // CanvasLayer для UI overlay (рендерится поверх 3D сцены)
+        let mut canvas_layer = CanvasLayer::new_alloc();
+
+        // Label для FPS
+        let mut label = Label::new_alloc();
+        label.set_text("FPS: --");
+
+        // Позиция: top-right corner
+        label.set_position(Vector2::new(10.0, 10.0));
+
+        // Стиль: белый текст, крупный шрифт
+        label.add_theme_color_override("font_color", Color::from_rgb(1.0, 1.0, 1.0));
+        label.add_theme_font_size_override("font_size", 24);
+
+        // Добавляем label в canvas layer
+        canvas_layer.add_child(&label.clone().upcast::<Node>());
+
+        // Добавляем canvas layer в сцену
+        self.base_mut().add_child(&canvas_layer.upcast::<Node>());
+
+        // Сохраняем reference для обновления в process()
+        self.fps_label = Some(label);
+
+        voidrun_simulation::log("FPS counter UI created (top-left corner)");
     }
 
     // ❌ REMOVED: create_npc_visual() — теперь используем spawn_actor_visuals_main_thread() ECS систему
@@ -287,14 +393,21 @@ impl SimulationBridge {
                 .collect();
 
             if !events.is_empty() {
-                voidrun_simulation::log(&format!("DEBUG: Found {} damage events this frame", events.len()));
+                voidrun_simulation::log(&format!(
+                    "DEBUG: Found {} damage events this frame",
+                    events.len()
+                ));
             }
 
             // Собираем позиции для particles
-            events.iter()
+            events
+                .iter()
                 .filter_map(|event| {
-                    world.get::<bevy::prelude::Transform>(event.target)
-                        .map(|t| Vector3::new(t.translation.x, t.translation.y + 0.5, t.translation.z))
+                    world
+                        .get::<bevy::prelude::Transform>(event.target)
+                        .map(|t| {
+                            Vector3::new(t.translation.x, t.translation.y + 0.5, t.translation.z)
+                        })
                 })
                 .collect()
         } else {
@@ -310,7 +423,10 @@ impl SimulationBridge {
 
     /// Спавнит красные particles в точке удара
     fn spawn_hit_particles(&mut self, position: Vector3) {
-        voidrun_simulation::log(&format!("DEBUG: Creating particles at position {:?}", position));
+        voidrun_simulation::log(&format!(
+            "DEBUG: Creating particles at position {:?}",
+            position
+        ));
 
         let mut particles = CpuParticles3D::new_alloc();
 
@@ -388,17 +504,24 @@ fn delayed_npc_spawn_system(
             voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
 
             // Спавним 2 NPC с мечами для melee combat теста
-            spawn_melee_npc(&mut commands, (0.0, 0.5, 0.0), 1, 300);  // Faction 1
-            spawn_melee_npc(&mut commands, (0.0, 0.5, 2.0), 2, 300);   // Faction 2
-            spawn_melee_npc(&mut commands, (0.0, 0.5, 4.0), 3, 300);   // Faction 3
+            spawn_melee_npc(&mut commands, (20.0, 0.5, 5.0), 1, 300); // Faction 1
+            // spawn_melee_npc(&mut commands, (6.0, 0.5, 5.0), 1, 300); // Faction 1
+            // spawn_melee_npc(&mut commands, (5.0, 0.5, 6.0), 1, 300); // Faction 1
+            // spawn_melee_npc(&mut commands, (6.0, 0.5, 6.0), 1, 300); // Faction 1
 
-            spawn_test_npc(&mut commands, (0.4, 0.5, 6.0), 1, 100, 10);   // Faction 4
-            spawn_test_npc(&mut commands, (0.5, 0.5, 8.0), 2, 100, 10);   // Faction 5
-            spawn_test_npc(&mut commands, (0.3, 0.5, 10.0), 3, 100, 10);   // Faction 6
-            // Удаляем маркер (spawn уже выполнен)
+            spawn_melee_npc(&mut commands, (20.0, 0.5, 7.0), 2, 300); // Faction 2
+            // spawn_melee_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 300); // Faction 2
+            // spawn_melee_npc(&mut commands, (-6.0, 0.5, -5.0), 2, 300); // Faction 3
+            // spawn_melee_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 300); // Faction 3
+                                                                    //    spawn_test_npc(&mut commands, (3.0, 0.5, 0.0), 1, 100, 10);   // Faction 4
+                                                                    //    spawn_test_npc(&mut commands, (-5.0, 0.5, 8.0), 2, 100, 10);   // Faction 5
+                                                                    //    spawn_test_npc(&mut commands, (9.0, 0.5, -10.0), 3, 100, 10);   // Faction 6
+                                                                       // Удаляем маркер (spawn уже выполнен)
             commands.entity(entity).despawn();
 
-            voidrun_simulation::log("✅ NPCs spawned successfully (melee test: 2 NPCs with swords)");
+            voidrun_simulation::log(
+                "✅ NPCs spawned successfully (melee test: 2 NPCs with swords)",
+            );
         }
     }
 }
@@ -415,36 +538,38 @@ fn spawn_melee_npc(
     let world_pos = Vec3::new(position.0, position.1, position.2);
     let strategic_pos = StrategicPosition::from_world_position(world_pos);
 
-    commands.spawn((
-        Actor { faction_id },
-        strategic_pos,
-        PrefabPath::new("res://actors/test_actor.tscn"),
-        Health {
-            current: max_hp,
-            max: max_hp,
-        },
-        Stamina {
-            current: 100.0,
-            max: 100.0,
-            regen_rate: 10.0,
-        },
-        WeaponStats::melee_sword(), // ✅ Melee weapon (sword)
-        MovementCommand::Idle,
-        NavigationState::default(),
-        AIState::Idle,
-        AIConfig {
-            retreat_stamina_threshold: 0.2,
-            retreat_health_threshold: 0.0,
-            retreat_duration: 1.5,
-            patrol_direction_change_interval: 3.0,
-        },
-        SpottedEnemies::default(),
-        Attachment {
-            prefab_path: "res://actors/test_sword.tscn".to_string(), // ✅ Sword prefab
-            attachment_point: "RightHand/WeaponAttachment".to_string(),
-            attachment_type: AttachmentType::Weapon,
-        },
-    )).id()
+    commands
+        .spawn((
+            Actor { faction_id },
+            strategic_pos,
+            PrefabPath::new("res://actors/test_actor.tscn"),
+            Health {
+                current: max_hp,
+                max: max_hp,
+            },
+            Stamina {
+                current: 100.0,
+                max: 100.0,
+                regen_rate: 10.0,
+            },
+            WeaponStats::melee_sword(), // ✅ Melee weapon (sword)
+            MovementCommand::Idle,
+            NavigationState::default(),
+            AIState::Idle,
+            AIConfig {
+                retreat_stamina_threshold: 0.2,
+                retreat_health_threshold: 0.0,
+                retreat_duration: 1.5,
+                patrol_direction_change_interval: 3.0,
+            },
+            SpottedEnemies::default(),
+            Attachment {
+                prefab_path: "res://actors/test_sword.tscn".to_string(), // ✅ Sword prefab
+                attachment_point: "RightHand/WeaponAttachment".to_string(),
+                attachment_type: AttachmentType::Weapon,
+            },
+        ))
+        .id()
 }
 
 /// Спавн тестового NPC в ECS world (ADR-005: StrategicPosition + PrefabPath)
@@ -460,36 +585,38 @@ fn spawn_test_npc(
     let world_pos = Vec3::new(position.0, position.1, position.2);
     let strategic_pos = StrategicPosition::from_world_position(world_pos);
 
-    commands.spawn((
-        Actor { faction_id },
-        strategic_pos, // StrategicPosition (sync_strategic_position_from_godot обновит из Godot)
-        PrefabPath::new("res://actors/test_actor.tscn"), // Data-driven prefab path
-        Health {
-            current: max_hp,
-            max: max_hp,
-        },
-        Stamina {
-            current: 100.0,
-            max: 100.0,
-            regen_rate: 10.0, // 10 stamina/sec
-        },
-        WeaponStats::ranged_pistol(), // Unified weapon stats (ranged)
-        MovementCommand::Idle, // Godot будет читать и выполнять
-        NavigationState::default(), // Трекинг достижения navigation target (для PositionChanged events)
-        AIState::Idle,
-        AIConfig {
-            retreat_stamina_threshold: 0.2,  // Retreat при stamina < 20%
-            retreat_health_threshold: 0.0,   // Retreat при HP < 10% (было 20%)
-            retreat_duration: 1.5,            // Быстрее возвращаются в бой
-            patrol_direction_change_interval: 3.0, // Каждые 3 сек новое направление
-        },
-        SpottedEnemies::default(), // Godot VisionCone → GodotAIEvent → обновляет список
-        Attachment {
-            prefab_path: "res://actors/test_pistol.tscn".to_string(),
-            attachment_point: "RightHand/WeaponAttachment".to_string(),
-            attachment_type: AttachmentType::Weapon,
-        },
-    )).id()
+    commands
+        .spawn((
+            Actor { faction_id },
+            strategic_pos, // StrategicPosition (sync_strategic_position_from_godot обновит из Godot)
+            PrefabPath::new("res://actors/test_actor.tscn"), // Data-driven prefab path
+            Health {
+                current: max_hp,
+                max: max_hp,
+            },
+            Stamina {
+                current: 100.0,
+                max: 100.0,
+                regen_rate: 10.0, // 10 stamina/sec
+            },
+            WeaponStats::ranged_pistol(), // Unified weapon stats (ranged)
+            MovementCommand::Idle,        // Godot будет читать и выполнять
+            NavigationState::default(), // Трекинг достижения navigation target (для PositionChanged events)
+            AIState::Idle,
+            AIConfig {
+                retreat_stamina_threshold: 0.2,        // Retreat при stamina < 20%
+                retreat_health_threshold: 0.0,         // Retreat при HP < 10% (было 20%)
+                retreat_duration: 1.5,                 // Быстрее возвращаются в бой
+                patrol_direction_change_interval: 3.0, // Каждые 3 сек новое направление
+            },
+            SpottedEnemies::default(), // Godot VisionCone → GodotAIEvent → обновляет список
+            Attachment {
+                prefab_path: "res://actors/test_pistol.tscn".to_string(),
+                attachment_point: "RightHand/WeaponAttachment".to_string(),
+                attachment_type: AttachmentType::Weapon,
+            },
+        ))
+        .id()
 }
 
 struct GodotLogger;
@@ -515,8 +642,8 @@ impl GodotLogger {
         if level == LogLevel::Error {
             godot_error!("[{}] {}", level.as_str(), message);
         } else {
-            godot_print!("[{}] {}", level.as_str(), message);
         }
+        godot_print!("[{}] {}", level.as_str(), message);
 
         // Пишем в файл logs/game.log (append mode)
         // Godot запускается из godot/ директории, поэтому путь относительно project root

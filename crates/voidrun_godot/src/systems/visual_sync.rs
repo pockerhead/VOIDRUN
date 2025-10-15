@@ -104,17 +104,33 @@ pub fn spawn_actor_visuals_main_thread(
         let mut nav_agent = NavigationAgent3D::new_alloc();
         nav_agent.set_name("NavigationAgent3D"); // ВАЖНО: задаём имя явно!
 
-        // nav_agent.set_debug_enabled(true);
-        // nav_agent.set_debug_path_custom_color(Color::from_rgb(0.8, 0.2, 0.2));
+        nav_agent.set_debug_enabled(true);
+        nav_agent.set_debug_path_custom_color(Color::from_rgb(0.8, 0.2, 0.2));
 
-        // КРИТИЧНО: avoidance = false (мы не используем velocity_computed callback)
-        // Наша архитектура: ECS → NavigationAgent.get_next_path_position() → CharacterBody
-        // Без avoidance нет необходимости в velocity_computed signal
-        nav_agent.set_avoidance_enabled(false);
+        // КРИТИЧНО: avoidance = true (используем velocity_computed signal для obstacle avoidance)
+        nav_agent.set_avoidance_enabled(true);
+        nav_agent.set_radius(0.5); // Actor collision radius (как CapsuleShape3D)
+        nav_agent.set_max_speed(10.0); // MOVE_SPEED = 10.0 (используется NavigationServer для avoidance)
 
-        nav_agent.set_max_speed(1.5); // Соответствует MOVE_SPEED (для reference, не используется без avoidance)
         actor_node.add_child(&nav_agent.upcast::<Node>());
-        voidrun_simulation::log("  → NavigationAgent3D added to actor_node (root)");
+        voidrun_simulation::log("  → NavigationAgent3D added (avoidance enabled)");
+
+        // Создаём AvoidanceReceiver для обработки velocity_computed signal
+        let mut avoidance_receiver = Gd::<crate::avoidance_receiver::AvoidanceReceiver>::from_init_fn(|base| {
+            crate::avoidance_receiver::AvoidanceReceiver::init(base)
+        });
+        avoidance_receiver.set_name("AvoidanceReceiver");
+
+        // Устанавливаем entity_id (для callback → ECS event)
+        avoidance_receiver.bind_mut().entity_id = entity.to_bits() as i64;
+
+        // Устанавливаем путь к SimulationBridge (для EventWriter доступа)
+        let bridge_path = root.get_path();
+        avoidance_receiver.bind_mut().simulation_bridge_path = bridge_path;
+
+        // Добавляем как child actor_node
+        actor_node.add_child(&avoidance_receiver.upcast::<Node>());
+        voidrun_simulation::log("  → AvoidanceReceiver added (velocity_computed signal)");
 
         // Регистрируем в VisualRegistry (Entity → Godot Node + reverse mapping)
         let instance_id = actor_node.instance_id();
