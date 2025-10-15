@@ -29,6 +29,7 @@ pub fn poll_vision_cones_main_thread(
     mut tracking: NonSendMut<VisionTracking>,
     mut ai_events: EventWriter<GodotAIEvent>,
 ) {
+
     for observer in query.iter() {
         let Some(observer_node) = visuals.visuals.get(&observer) else {
             continue;
@@ -81,6 +82,7 @@ pub fn poll_vision_cones_main_thread(
         // Обновляем tracking state
         *tracking.spotted.entry(observer).or_default() = current_spotted;
     }
+
 }
 
 

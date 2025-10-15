@@ -142,7 +142,10 @@ struct ActionOption {
 // Main System: Unified AI Combat Decision
 // ============================================================================
 
-/// System: Unified AI combat decision making.
+/// System: Unified AI **melee** combat decision making.
+///
+/// **Scope:** MELEE combat only (MeleeAttackIntent, ParryIntent)
+/// **Note:** Ranged combat uses separate system (ai_weapon_fire_intent in ECS layer)
 ///
 /// Runs on main thread (requires Godot node access for facing/distance validation).
 ///
@@ -163,7 +166,7 @@ struct ActionOption {
 /// - **Can interrupt AttackWindup** (if progress < 50%) to parry
 /// - **Cannot interrupt AttackActive/ParryWindup** (committed)
 /// - **Can start new attack after AttackRecovery** (cooldown permitting)
-pub fn ai_combat_decision_main_thread(
+pub fn ai_melee_combat_decision_main_thread(
     mut telegraph_events: EventReader<CombatAIEvent>,
     ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina, &Actor), Without<StaggerState>>,
     actor_query: Query<&Actor>,

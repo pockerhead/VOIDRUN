@@ -241,7 +241,7 @@ pub fn create_test_navigation_region_with_obstacles(
         // ("Obstacle2", Vector3::new(-15.0, 0.0, 5.0), Vector3::new(3.0, 4.5, 3.0)),
         // ("Obstacle3", Vector3::new(20.0, 0.0, -10.0), Vector3::new(1.5, 4.0, 1.5)),
         // ("Obstacle4", Vector3::new(-10.0, 0.0, -15.0), Vector3::new(4.0, 4.0, 2.0)),
-        ("Obstacle5", Vector3::new(-0.0, 0.0, -0.0), Vector3::new(4.0, 4.0, 4.0)),
+        ("Obstacle5", Vector3::new(-0.0, -0.0, -0.0), Vector3::new(4.0, 4.0, 4.0)),
 
     ];
 

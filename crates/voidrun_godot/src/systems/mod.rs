@@ -6,7 +6,7 @@ pub mod weapon_system;
 pub mod melee_system;
 pub mod movement_system;
 pub mod ai_combat;
-pub mod ai_combat_decision;
+pub mod ai_melee_combat_decision;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
 pub use vision_system::VisionTracking;
@@ -31,8 +31,9 @@ pub use vision_system::{
 };
 
 pub use weapon_system::{
+    update_combat_targets_main_thread,
     weapon_aim_main_thread,
-    process_weapon_fire_intents_main_thread,
+    process_ranged_attack_intents_main_thread,
     weapon_fire_main_thread,
     process_godot_projectile_hits,
 };
@@ -45,8 +46,8 @@ pub use melee_system::{
     execute_stagger_animations_main_thread,
 };
 
-pub use ai_combat_decision::{
-    ai_combat_decision_main_thread,
+pub use ai_melee_combat_decision::{
+    ai_melee_combat_decision_main_thread,
 };
 
 pub use movement_system::{

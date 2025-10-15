@@ -1,6 +1,6 @@
 use crate::camera::rts_camera::RTSCamera3D;
 use crate::systems::{AttachmentRegistry, SceneRoot, VisionTracking, VisualRegistry};
-use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
 use godot::classes::Timer;
 use godot::classes::{
     base_material_3d::{Flags as BaseMaterial3DFlags, ShadingMode as BaseMaterial3DShading},
@@ -13,6 +13,27 @@ use godot::prelude::*;
 use voidrun_simulation::ai::{AIState, SpottedEnemies};
 use voidrun_simulation::combat::WeaponStats;
 use voidrun_simulation::*;
+
+/// Custom schedule: SlowUpdate (0.3 Hz = ~3 раза в секунду)
+///
+/// Для систем с "человеческим временем реакции":
+/// - Target switching (update_combat_targets_main_thread)
+/// - AI decision making (low priority)
+/// - Strategic position sync (chunk-based, редко меняется)
+///
+/// Преимущества:
+/// - Экономия CPU (не нужно каждый frame)
+/// - Более реалистичное поведение AI (время реакции ~0.3с)
+/// - Избегаем "perfect play" эффект (instant target switching)
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct SlowUpdate;
+
+/// Resource: таймер для SlowUpdate schedule (запускает каждые 0.3с)
+#[derive(bevy::prelude::Resource)]
+struct SlowUpdateTimer {
+    timer: f32,
+    interval: f32, // 0.3 секунды
+}
 
 /// Мост между Godot и Rust ECS симуляцией (100% Rust, no GDScript)
 ///
@@ -44,7 +65,7 @@ impl INode3D for SimulationBridge {
     fn ready(&mut self) {
         GodotLogger::clear_log_file();
         voidrun_simulation::set_logger(Box::new(GodotLogger));
-        voidrun_simulation::set_log_level(LogLevel::Debug);
+        voidrun_simulation::set_log_level(LogLevel::Error);
         voidrun_simulation::log("SimulationBridge ready - building 3D scene in Rust");
 
         // 1. Создаём navigation region + ground
@@ -71,12 +92,19 @@ impl INode3D for SimulationBridge {
             node: self.base().clone().upcast::<Node3D>(),
         });
 
+        // 4.1b Создаём SlowUpdate schedule (0.3 Hz) + timer resource
+        app.init_schedule(SlowUpdate);
+        app.insert_resource(SlowUpdateTimer {
+            timer: 0.0,
+            interval: 0.3, // 0.3 секунды между запусками
+        });
+
         // 4.2 Инициализируем static queues для Godot → ECS events
         crate::projectile::init_projectile_hit_queue();
 
         // 4.3 Регистрируем visual sync systems (_main_thread = Godot API)
         use crate::systems::{
-            ai_combat_decision_main_thread, // Unified AI combat decision system (attack/parry/wait)
+            ai_melee_combat_decision_main_thread, // Unified AI melee combat decision system (attack/parry/wait)
             apply_navigation_velocity_main_thread,
             apply_retreat_velocity_main_thread,
             apply_safe_velocity_system, // NavigationAgent3D avoidance
@@ -94,11 +122,12 @@ impl INode3D for SimulationBridge {
             process_godot_projectile_hits,
             process_melee_attack_intents_main_thread,
             process_movement_commands_main_thread,
-            process_weapon_fire_intents_main_thread,
+            process_ranged_attack_intents_main_thread,
             spawn_actor_visuals_main_thread,
             sync_ai_state_labels_main_thread,
             sync_health_labels_main_thread,
             sync_stamina_labels_main_thread,
+            update_combat_targets_main_thread, // Dynamic target switching (closest spotted enemy)
             update_follow_entity_targets_main_thread,
             weapon_aim_main_thread,
             weapon_fire_main_thread,
@@ -133,7 +162,6 @@ impl INode3D for SimulationBridge {
         app.add_systems(
             bevy::prelude::Update,
             (
-                poll_vision_cones_main_thread,            // VisionCone → GodotAIEvent
                 process_movement_commands_main_thread,    // MovementCommand → NavigationAgent3D
                 update_follow_entity_targets_main_thread, // Update FollowEntity targets every frame
                 apply_retreat_velocity_main_thread,       // RetreatFrom → backpedal + face target
@@ -143,16 +171,27 @@ impl INode3D for SimulationBridge {
                 disable_collision_on_death_main_thread, // Отключение collision + gray + DespawnAfter
                 despawn_actor_visuals_main_thread, // Удаление Godot nodes для despawned entities
                 weapon_aim_main_thread,            // Aim RightHand at target
-                process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
+                process_ranged_attack_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
                 weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
                 process_godot_projectile_hits,           // Godot queue → ECS ProjectileHit events
-                ai_combat_decision_main_thread, // Unified AI combat decision (attack/parry/wait)
+                ai_melee_combat_decision_main_thread, // Unified AI melee combat decision (attack/parry/wait)
                 process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
                 execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox
                 execute_parry_animations_main_thread, // ParryState changed → play melee_parry/melee_parry_recover animations
                 execute_stagger_animations_main_thread, // StaggerState added → interrupt attack, play RESET
                 poll_melee_hitboxes_main_thread, // Poll hitbox overlaps during ActiveHitbox phase → MeleeHit events
             ),
+        );
+
+        // SlowUpdate schedule (0.3 Hz = ~3 раза в секунду)
+        // Для систем с "человеческим временем реакции" (target switching, decision making)
+        app.add_systems(
+            SlowUpdate,
+            (
+                poll_vision_cones_main_thread,            // VisionCone → GodotAIEvent
+                update_combat_targets_main_thread, // Dynamic target switching (closest visible spotted enemy)
+            )
+                .chain(),
         );
 
         // 5. Создаём маркер для отложенного спавна NPC (через 5 секунд)
@@ -174,12 +213,12 @@ impl INode3D for SimulationBridge {
             FPS_TIMER += delta as f32;
             FRAME_COUNT += 1;
 
-            if FPS_TIMER >= 0.5 {
-                // Обновляем каждые 0.5 сек
+            if FPS_TIMER >= 0.2 {
                 let fps = FRAME_COUNT as f32 / FPS_TIMER;
                 if let Some(mut label) = self.fps_label.as_mut() {
                     label.set_text(&format!("FPS: {:.0}", fps));
                 }
+                voidrun_simulation::log_error(&format!("FPS: {:.0}", fps));
                 FPS_TIMER = 0.0;
                 FRAME_COUNT = 0;
             }
@@ -190,6 +229,18 @@ impl INode3D for SimulationBridge {
             // Передаём delta time в Bevy (для movement system)
             app.world_mut()
                 .insert_resource(crate::systems::GodotDeltaTime(delta as f32));
+
+            // SlowUpdate timer tick (запуск каждые 0.3с)
+            {
+                let mut timer = app.world_mut().resource_mut::<SlowUpdateTimer>();
+                timer.timer += delta as f32;
+
+                if timer.timer >= timer.interval {
+                    timer.timer = 0.0; // Reset timer
+                    app.world_mut().run_schedule(SlowUpdate); // Запускаем SlowUpdate schedule
+                }
+            }
+
             app.update(); // ECS systems выполнятся, включая attach/detach_prefabs_main_thread
         }
 
@@ -515,9 +566,9 @@ fn delayed_npc_spawn_system(
             spawn_test_npc(&mut commands, (5.0, 0.5, 6.0), 1, 100); // Faction 1
             spawn_test_npc(&mut commands, (6.0, 0.5, 6.0), 1, 100); // Faction 1
             
-            spawn_melee_npc(&mut commands, (26.0, 0.5, 5.0), 1, 300); // Faction 1
-            spawn_melee_npc(&mut commands, (25.0, 0.5, 6.0), 1, 300); // Faction 1
-            spawn_melee_npc(&mut commands, (21.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (26.0, 0.5, 5.0), 1, 100); // Faction 1
+            spawn_test_npc(&mut commands, (25.0, 0.5, 6.0), 1, 100); // Faction 1
+            spawn_test_npc(&mut commands, (21.0, 0.5, 6.0), 1, 100); // Faction 1
 
             spawn_test_npc(&mut commands, (-5.0, 0.5, 7.0), 2, 100); // Faction 2
             spawn_test_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 100); // Faction 2
@@ -525,9 +576,21 @@ fn delayed_npc_spawn_system(
             spawn_test_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 100); // Faction 3
 
             
-            spawn_melee_npc(&mut commands, (-25.0, 0.5, -6.0), 2, 300); // Faction 2
-            spawn_melee_npc(&mut commands, (-26.0, 0.5, -5.0), 2, 300); // Faction 3
-            spawn_melee_npc(&mut commands, (-16.0, 0.5, -6.0), 2, 300); // Faction 3
+            spawn_test_npc(&mut commands, (-25.0, 0.5, -6.0), 2, 100); // Faction 2
+            spawn_test_npc(&mut commands, (-26.0, 0.5, -5.0), 2, 100); // Faction 3
+            spawn_test_npc(&mut commands, (-16.0, 0.5, -6.0), 2, 100); // Faction 3
+
+            
+
+            spawn_test_npc(&mut commands, (-0.0, 0.5, 7.0), 3, 100); // Faction 2
+            spawn_test_npc(&mut commands, (-1.0, 0.5, -6.0), 3, 100); // Faction 2
+            spawn_test_npc(&mut commands, (-2.0, 0.5, -5.0), 3, 100); // Faction 3
+            spawn_test_npc(&mut commands, (-0.0, 0.5, -6.0), 3, 100); // Faction 3
+
+            
+            spawn_test_npc(&mut commands, (3.0, 0.5, -6.0), 3, 100); // Faction 2
+            spawn_test_npc(&mut commands, (2.0, 0.5, -5.0), 3, 100); // Faction 3
+            spawn_test_npc(&mut commands, (1.0, 0.5, -6.0), 3, 100); // Faction 3
                                                                     //    spawn_test_npc(&mut commands, (3.0, 0.5, 0.0), 1, 100, 10);   // Faction 4
                                                                     //    spawn_test_npc(&mut commands, (-5.0, 0.5, 8.0), 2, 100, 10);   // Faction 5
                                                                     //    spawn_test_npc(&mut commands, (9.0, 0.5, -10.0), 3, 100, 10);   // Faction 6

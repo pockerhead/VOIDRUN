@@ -215,11 +215,17 @@ pub fn sync_ai_state_labels_main_thread(
     }
 }
 
-/// Disable collision for dead actors (HP == 0) + paint gray + schedule despawn after 5 sec
+/// Disable collision for dead actors (HP == 0) + full cleanup + schedule despawn after 5 sec
 ///
-/// Отключает collision layer/mask у CharacterBody3D когда актёр умирает.
-/// Красит все MeshInstance3D в серый цвет.
-/// Добавляет компонент DespawnAfter для деспавна через 5 секунд.
+/// **Complete cleanup for dead actors:**
+/// - Отключает collision (layer/mask = 0) у CharacterBody3D
+/// - Отключает NavigationAgent3D (avoidance_enabled = false, set_velocity_forced = 0)
+/// - Красит все MeshInstance3D в серый цвет
+/// - Удаляет VisionCone (Area3D) если есть
+/// - Отключает AvoidanceReceiver (для предотвращения signal callbacks)
+/// - Добавляет DespawnAfter компонент (desp spawn через 5 сек)
+///
+/// **Result:** Dead actor больше не мешает живым (no collision, no pathfinding, no vision)
 pub fn disable_collision_on_death_main_thread(
     query: Query<(Entity, &Health), Changed<Health>>,
     visuals: NonSend<VisualRegistry>,
@@ -241,11 +247,42 @@ pub fn disable_collision_on_death_main_thread(
 
         // Пробуем получить CharacterBody3D (root node в test_actor.tscn)
         if let Some(mut body) = actor_node.clone().try_cast::<CharacterBody3D>().ok() {
-            // 1. Отключаем collision (убираем все layers/masks)
+            // ========================================
+            // 1. ОТКЛЮЧАЕМ COLLISION (layer/mask = 0)
+            // ========================================
             body.set_collision_layer(0);
             body.set_collision_mask(0);
 
-            // 2. Красим все MeshInstance3D в серый цвет
+            // ========================================
+            // 2. ОТКЛЮЧАЕМ NAVIGATIONAGENT3D
+            // ========================================
+            if let Some(mut nav_agent) = actor_node.try_get_node_as::<NavigationAgent3D>("NavigationAgent3D") {
+                nav_agent.set_avoidance_enabled(false); // Отключить avoidance (не мешать другим)
+                nav_agent.set_velocity_forced(Vector3::ZERO); // Остановить движение
+                nav_agent.set_target_position(actor_node.get_global_position()); // Сбросить target (stop pathfinding)
+                voidrun_simulation::log(&format!("  → NavigationAgent3D disabled (entity {:?})", entity));
+            }
+
+            // ========================================
+            // 3. УДАЛЯЕМ VISIONCONE (если есть)
+            // ========================================
+            if let Some(mut vision_cone) = actor_node.try_get_node_as::<godot::classes::Area3D>("VisionCone") {
+                vision_cone.set_monitoring(false); // Отключить collision detection
+                vision_cone.queue_free(); // Удалить node (отложенно)
+                voidrun_simulation::log(&format!("  → VisionCone removed (entity {:?})", entity));
+            }
+
+            // ========================================
+            // 4. ОТКЛЮЧАЕМ AVOIDANCERECEIVER (signal callbacks)
+            // ========================================
+            if let Some(mut receiver) = actor_node.try_get_node_as::<Node>("AvoidanceReceiver") {
+                receiver.set_process_mode(godot::classes::node::ProcessMode::DISABLED);
+                voidrun_simulation::log(&format!("  → AvoidanceReceiver disabled (entity {:?})", entity));
+            }
+
+            // ========================================
+            // 5. КРАСИМ ВСЕ MESHINSTANCE3D В СЕРЫЙ
+            // ========================================
             for i in 0..body.get_child_count() {
                 if let Some(mut mesh) = body.get_child(i).and_then(|c| c.try_cast::<MeshInstance3D>().ok()) {
                     let mut material = StandardMaterial3D::new_gd();
@@ -255,11 +292,13 @@ pub fn disable_collision_on_death_main_thread(
             }
 
             voidrun_simulation::log(&format!(
-                "💀 Entity {:?} died — collision disabled, painted gray, despawn in 5 sec",
+                "💀 Entity {:?} died — FULL CLEANUP: collision off, nav off, vision off, gray painted, despawn in 5 sec",
                 entity
             ));
 
-            // 3. Добавляем компонент DespawnAfter для удаления через 5 секунд
+            // ========================================
+            // 6. SCHEDULE DESPAWN AFTER 5 SECONDS
+            // ========================================
             let despawn_time = time.elapsed_secs() + 5.0;
             commands.entity(entity).insert(voidrun_simulation::combat::DespawnAfter { despawn_time });
         }
