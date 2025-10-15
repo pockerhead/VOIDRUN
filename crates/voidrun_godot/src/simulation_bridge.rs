@@ -76,7 +76,7 @@ impl INode3D for SimulationBridge {
 
         // 4.3 Регистрируем visual sync systems (_main_thread = Godot API)
         use crate::systems::{
-            ai_react_to_incoming_attacks_main_thread,
+            ai_combat_decision_main_thread, // Unified AI combat decision system (attack/parry/wait)
             apply_navigation_velocity_main_thread,
             apply_retreat_velocity_main_thread,
             apply_safe_velocity_system, // NavigationAgent3D avoidance
@@ -146,7 +146,7 @@ impl INode3D for SimulationBridge {
                 process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
                 weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
                 process_godot_projectile_hits,           // Godot queue → ECS ProjectileHit events
-                ai_react_to_incoming_attacks_main_thread, // CombatAIEvent::EnemyAttackTelegraphed → ParryIntent (facing/distance validation)
+                ai_combat_decision_main_thread, // Unified AI combat decision (attack/parry/wait)
                 process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
                 execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox
                 execute_parry_animations_main_thread, // ParryState changed → play melee_parry/melee_parry_recover animations
@@ -510,15 +510,24 @@ fn delayed_npc_spawn_system(
             voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
 
             // Спавним 2 NPC с мечами для melee combat теста
-            spawn_melee_npc(&mut commands, (20.0, 0.5, 5.0), 1, 300); // Faction 1
-            // spawn_melee_npc(&mut commands, (6.0, 0.5, 5.0), 1, 300); // Faction 1
-            // spawn_melee_npc(&mut commands, (5.0, 0.5, 6.0), 1, 300); // Faction 1
-            // spawn_melee_npc(&mut commands, (6.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (10.0, 0.5, 5.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (6.0, 0.5, 5.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (5.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (6.0, 0.5, 6.0), 1, 300); // Faction 1
+            
+            spawn_test_npc(&mut commands, (26.0, 0.5, 5.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (25.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (21.0, 0.5, 6.0), 1, 300); // Faction 1
 
-            spawn_melee_npc(&mut commands, (20.0, 0.5, 7.0), 2, 300); // Faction 2
-            // spawn_melee_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 300); // Faction 2
-            // spawn_melee_npc(&mut commands, (-6.0, 0.5, -5.0), 2, 300); // Faction 3
-            // spawn_melee_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 300); // Faction 3
+            spawn_test_npc(&mut commands, (-5.0, 0.5, 7.0), 2, 300); // Faction 2
+            spawn_test_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 300); // Faction 2
+            spawn_test_npc(&mut commands, (-6.0, 0.5, -5.0), 2, 300); // Faction 3
+            spawn_test_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 300); // Faction 3
+
+            
+            spawn_test_npc(&mut commands, (-25.0, 0.5, -6.0), 2, 300); // Faction 2
+            spawn_test_npc(&mut commands, (-26.0, 0.5, -5.0), 2, 300); // Faction 3
+            spawn_test_npc(&mut commands, (-16.0, 0.5, -6.0), 2, 300); // Faction 3
                                                                     //    spawn_test_npc(&mut commands, (3.0, 0.5, 0.0), 1, 100, 10);   // Faction 4
                                                                     //    spawn_test_npc(&mut commands, (-5.0, 0.5, 8.0), 2, 100, 10);   // Faction 5
                                                                     //    spawn_test_npc(&mut commands, (9.0, 0.5, -10.0), 3, 100, 10);   // Faction 6
@@ -556,7 +565,7 @@ fn spawn_melee_npc(
             Stamina {
                 current: 100.0,
                 max: 100.0,
-                regen_rate: 10.0,
+                regen_rate: 100.0, // 10x faster for testing combat
             },
             WeaponStats::melee_sword(), // ✅ Melee weapon (sword)
             MovementCommand::Idle,
@@ -583,8 +592,7 @@ fn spawn_test_npc(
     commands: &mut bevy::prelude::Commands,
     position: (f32, f32, f32), // World position (будет конвертирован в StrategicPosition)
     faction_id: u64,
-    max_hp: u32,
-    damage: u32,
+    max_hp: u32
 ) -> bevy::prelude::Entity {
     use bevy::prelude::Vec3;
 

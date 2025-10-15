@@ -29,7 +29,7 @@ pub use melee::{
     MeleeAttackIntent, MeleeAttackStarted, MeleeHit, ParryIntent, ParrySuccess,
     MeleeAttackType,
     // Attack systems
-    ai_melee_attack_intent, start_melee_attacks, update_melee_attack_phases, process_melee_hits,
+    start_melee_attacks, update_melee_attack_phases, process_melee_hits,
     // Parry systems
     start_parry, update_parry_states, update_stagger_states, process_parry_delay_timers,
 };
@@ -84,7 +84,7 @@ impl Plugin for CombatPlugin {
                 // Фаза 2: Attack intent generation (ECS strategic decision)
                 // Godot tactical validation в process_*_intents_main_thread
                 weapon::ai_weapon_fire_intent,
-                ai_melee_attack_intent,
+                // NOTE: ai_melee_attack_intent REMOVED - replaced by unified ai_combat_decision_main_thread (in Godot layer)
 
                 // Фаза 3: Attack execution (start attacks from approved intents)
                 start_melee_attacks,

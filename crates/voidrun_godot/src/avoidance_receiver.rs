@@ -101,12 +101,6 @@ impl AvoidanceReceiver {
 
         // Debug logging: сравниваем desired vs safe velocity
         let velocity_diff = (safe_velocity - self.desired_velocity).length();
-        if velocity_diff > 0.01 {
-            voidrun_simulation::log(&format!(
-                "[Avoidance] Entity {}: desired {:?} → safe {:?} (diff: {:.2}m/s)",
-                self.entity_id, self.desired_velocity, safe_velocity, velocity_diff
-            ));
-        }
 
         // Записать SafeVelocityComputed event через SimulationBridge
         let entity = bevy::prelude::Entity::from_bits(self.entity_id as u64);

@@ -383,59 +383,9 @@ use crate::ai::AIState;
 use crate::components::{Health, Stamina};
 use crate::combat::{DamageDealt, WeaponStats};
 
-/// System: AI generates melee attack intents (ECS strategic decision).
-///
-/// Runs when:
-/// - AI is in Combat state
-/// - Weapon is melee type
-/// - Target within attack radius (strategic estimate)
-/// - Weapon cooldown ready
-/// - Has stamina for attack
-///
-/// Generates `MeleeAttackIntent` event for Godot tactical validation.
-pub fn ai_melee_attack_intent(
-    ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina), (Without<ParryState>, Without<ParryDelayTimer>, Without<StaggerState>, Without<MeleeAttackState>)>,
-    mut intent_events: EventWriter<MeleeAttackIntent>,
-) {
-    for (attacker, ai_state, weapon, stamina) in ai_query.iter() {
-        // Only in Combat state
-        let AIState::Combat { target } = ai_state else {
-            continue;
-        };
-
-        // Only melee weapons
-        if !weapon.is_melee() {
-            continue;
-        }
-
-        // Check weapon cooldown
-        if !weapon.can_attack() {
-            crate::log(&format!("⏳ {:?} melee intent: weapon on cooldown ({:.2}s)", attacker, weapon.cooldown_timer));
-            continue;
-        }
-
-        // Check stamina (attack cost 30)
-        const ATTACK_COST: f32 = 30.0;
-        if stamina.current < ATTACK_COST {
-            crate::log(&format!("💨 {:?} melee intent: not enough stamina ({:.0}/{:.0})", attacker, stamina.current, ATTACK_COST));
-            continue;
-        }
-
-        // ✅ Generate intent (distance check в Godot tactical validation!)
-        // ECS стратегическое решение: AI хочет атаковать
-        // Godot тактическая валидация: проверит distance/LOS по актуальным Transform
-        intent_events.write(MeleeAttackIntent {
-            attacker,
-            target: *target,
-            attack_type: MeleeAttackType::Normal,
-        });
-
-        crate::log(&format!(
-            "🗡️ ECS: Melee attack intent generated (attacker: {:?}, target: {:?})",
-            attacker, target
-        ));
-    }
-}
+// REMOVED: ai_melee_attack_intent
+// Replaced by unified ai_combat_decision_main_thread system (see ai_combat_decision.rs)
+// That system handles both attack AND parry decisions to prevent race conditions.
 
 /// System: Start melee attacks (process MeleeAttackStarted events).
 ///

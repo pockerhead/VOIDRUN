@@ -71,7 +71,7 @@ impl Stamina {
         Self {
             current: max,
             max,
-            regen_rate: 10.0,
+            regen_rate: 50.0, // 5x faster for testing combat
         }
     }
 

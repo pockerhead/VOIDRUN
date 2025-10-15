@@ -1,7 +1,6 @@
-[gd_scene load_steps=18 format=3 uid="uid://b11myb8dfjdc6"]
+[gd_scene load_steps=17 format=3 uid="uid://b11myb8dfjdc6"]
 
 [ext_resource type="Shape3D" uid="uid://chinlvaytthss" path="res://resources/shapes/vision_con.tres" id="1_6ks1i"]
-[ext_resource type="PackedScene" uid="uid://bj2qcb44w60l4" path="res://actors/test_sword.tscn" id="2_qev7w"]
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_x3k1a"]
 radius = 0.2
@@ -274,8 +273,6 @@ mesh = SubResource("CapsuleMesh_6ks1i")
 
 [node name="WeaponAttachment" type="Node3D" parent="RightHand"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.016784549, 0, 0.0072513223)
-
-[node name="Sword" parent="RightHand/WeaponAttachment" instance=ExtResource("2_qev7w")]
 
 [node name="LeftHand" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 0, 0)
