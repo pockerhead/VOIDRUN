@@ -36,8 +36,10 @@ use voidrun_simulation::combat::{
     ParryState, StaggerState, WeaponStats,
 };
 use voidrun_simulation::components::Stamina;
+use voidrun_simulation::Actor;
 
 use crate::systems::VisualRegistry;
+use crate::los_helpers::check_line_of_sight;
 
 // ============================================================================
 // Components
@@ -163,12 +165,14 @@ struct ActionOption {
 /// - **Can start new attack after AttackRecovery** (cooldown permitting)
 pub fn ai_combat_decision_main_thread(
     mut telegraph_events: EventReader<CombatAIEvent>,
-    ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina), Without<StaggerState>>,
+    ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina, &Actor), Without<StaggerState>>,
+    actor_query: Query<&Actor>,
     attacks: Query<&MeleeAttackState>,
     parries: Query<&ParryState>,
     delay_timers: Query<&ParryDelayTimer>,
     mut waiting_query: Query<(Entity, &mut WaitingForOpening)>,
     visuals: NonSend<VisualRegistry>,
+    scene_root: NonSend<crate::systems::SceneRoot>,
     mut commands: Commands,
     mut attack_intent_events: EventWriter<MeleeAttackIntent>,
     time: Res<crate::systems::GodotDeltaTime>,
@@ -228,7 +232,7 @@ pub fn ai_combat_decision_main_thread(
     // ========================================================================
     // STEP 2: Process all AI in Combat state (O(n) with O(1) HashMap lookup)
     // ========================================================================
-    for (entity, ai_state, weapon, stamina) in ai_query.iter() {
+    for (entity, ai_state, weapon, stamina, actor) in ai_query.iter() {
         // Only process AI in Combat state
         let AIState::Combat { target } = ai_state else {
             continue;
@@ -250,6 +254,7 @@ pub fn ai_combat_decision_main_thread(
                 &parries,
                 &delay_timers,
                 &visuals,
+                &scene_root,
                 &mut commands,
                 &mut attack_intent_events,
             );
@@ -266,12 +271,15 @@ pub fn ai_combat_decision_main_thread(
             proactive_attack_decision(
                 entity,
                 *target,
+                actor,
                 weapon,
                 stamina,
+                &actor_query,
                 &attacks,
                 &parries,
                 &delay_timers,
                 &visuals,
+                &scene_root,
                 &mut commands,
                 &mut attack_intent_events,
             );
@@ -297,6 +305,7 @@ fn react_to_incoming_attack(
     parries: &Query<&ParryState>,
     delay_timers: &Query<&ParryDelayTimer>,
     visuals: &NonSend<VisualRegistry>,
+    scene_root: &NonSend<crate::systems::SceneRoot>,
     commands: &mut Commands,
     attack_intent_events: &mut EventWriter<MeleeAttackIntent>,
 ) {
@@ -351,12 +360,15 @@ fn react_to_incoming_attack(
 fn proactive_attack_decision(
     entity: Entity,
     target: Entity,
+    entity_actor: &Actor,
     weapon: &WeaponStats,
     stamina: &Stamina,
+    actor_query: &Query<&Actor>,
     attacks: &Query<&MeleeAttackState>,
     parries: &Query<&ParryState>,
     delay_timers: &Query<&ParryDelayTimer>,
-    _visuals: &NonSend<VisualRegistry>,
+    visuals: &NonSend<VisualRegistry>,
+    scene_root: &NonSend<crate::systems::SceneRoot>,
     commands: &mut Commands,
     attack_intent_events: &mut EventWriter<MeleeAttackIntent>,
 ) {
@@ -374,7 +386,48 @@ fn proactive_attack_decision(
         }
     }
 
-    // 2. Check if can attack (stamina, cooldown)
+    // 2. Friendly Fire Check: Не атаковать союзников (same faction_id)
+    let Ok(target_actor) = actor_query.get(target) else {
+        voidrun_simulation::log(&format!(
+            "⚠️ PROACTIVE: entity {:?} cannot attack target {:?} (no Actor component)",
+            entity, target
+        ));
+        return;
+    };
+
+    if target_actor.faction_id == entity_actor.faction_id {
+        voidrun_simulation::log(&format!(
+            "🚫 FRIENDLY FIRE PREVENTED: entity {:?} (faction {}) skips attack on ally {:?} (faction {})",
+            entity, entity_actor.faction_id, target, target_actor.faction_id
+        ));
+        return;
+    }
+
+    // 3. Line-of-Sight Check: Не атаковать если LOS blocked
+    // NOTE: movement_system.rs обработает LOS clearing через NavigationAgent
+    match check_line_of_sight(entity, target, visuals, scene_root) {
+        Some(true) => {
+            // LOS clear → can attack
+        }
+        Some(false) => {
+            // LOS blocked → пусть movement_system обходит через NavigationAgent
+            voidrun_simulation::log(&format!(
+                "🚫 LOS BLOCKED: entity {:?} → target {:?} (movement_system will handle pathfinding)",
+                entity, target
+            ));
+            return;
+        }
+        None => {
+            // Raycast failed (missing nodes?) → skip attack
+            voidrun_simulation::log(&format!(
+                "⚠️ PROACTIVE: entity {:?} LOS check failed for target {:?}",
+                entity, target
+            ));
+            return;
+        }
+    }
+
+    // 4. Check if can attack (stamina, cooldown)
     const ATTACK_COST: f32 = 30.0;
     if stamina.current < ATTACK_COST {
         return;
@@ -384,7 +437,7 @@ fn proactive_attack_decision(
         return;
     }
 
-    // 3. Random decision: Attack (60%) vs Wait for Opening (40%)
+    // 5. Random decision: Attack (60%) vs Wait for Opening (40%)
     let should_attack = rand::thread_rng().gen_bool(0.6);
 
     if should_attack {
@@ -398,7 +451,7 @@ fn proactive_attack_decision(
         });
 
         voidrun_simulation::log(&format!(
-            "⚔️ PROACTIVE: entity {:?} decides to ATTACK target {:?}",
+            "⚔️ PROACTIVE: entity {:?} decides to ATTACK target {:?} (LOS clear, different faction)",
             entity, target
         ));
     } else {

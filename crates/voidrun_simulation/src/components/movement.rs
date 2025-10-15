@@ -59,6 +59,14 @@ pub struct NavigationState {
 
     /// true когда NavigationAgent может достичь target позиции
     pub can_reach_target: bool,
+
+    /// Текущая adjusted distance для FollowEntity (итеративно уменьшается при LOS blocked)
+    ///
+    /// Логика:
+    /// - None: не инициализирована (первый кадр FollowEntity или смена target)
+    /// - Some(distance): текущая distance, уменьшается при LOS blocked
+    /// - Сбрасывается в None при смене target entity
+    pub current_follow_distance: Option<f32>,
 }
 
 /// Скорость движения актора (метры/сек)

@@ -250,6 +250,14 @@ pub fn create_test_navigation_region_with_obstacles(
         obstacle.set_name(*name);
         obstacle.set_position(*pos);
 
+        // Collision layers: Environment (layer 3)
+        // Obstacles коллидируют с actors (layer 2) и projectiles (layer 4)
+        obstacle.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ENVIRONMENT);
+        obstacle.set_collision_mask(
+            crate::collision_layers::COLLISION_LAYER_ACTORS
+                | crate::collision_layers::COLLISION_LAYER_PROJECTILES,
+        );
+
         // CollisionShape3D
         let mut collision = CollisionShape3D::new_alloc();
         let mut shape = BoxShape3D::new_gd();

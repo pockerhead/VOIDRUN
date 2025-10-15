@@ -15,12 +15,76 @@
 //! - Для single-player достаточно простого pathfinding без obstacle avoidance
 
 use crate::systems::visual_registry::VisualRegistry;
+use crate::los_helpers::check_line_of_sight;
 use bevy::prelude::*;
 use godot::classes::{
     BoxMesh, CharacterBody3D, Material, MeshInstance3D, NavigationAgent3D, StandardMaterial3D,
 };
 use godot::prelude::*;
 use voidrun_simulation::{MovementCommand, NavigationState};
+
+/// Adjust desired distance based on LOS check (stateful iteration).
+///
+/// Algorithm:
+/// 1. If current_distance is None → initialize from max_distance
+/// 2. Check LOS at current actor position to target
+/// 3. If LOS clear → keep current_distance (не увеличиваем обратно)
+/// 4. If LOS blocked → decrease current_distance by 2m
+/// 5. If distance < 2m → clamp to 2m (minimum, wait state)
+///
+/// NavigationAgent will pathfind to closer position, which may clear LOS.
+/// Distance iteratively decreases each frame until LOS clears.
+///
+/// # Parameters
+/// - `from_entity`: Shooter/follower entity
+/// - `to_entity`: Target entity
+/// - `current_distance`: Current adjusted distance (from NavigationState)
+/// - `max_distance`: Maximum distance (from weapon range, for initialization)
+/// - `visuals`: VisualRegistry for Godot nodes
+/// - `scene_root`: SceneRoot for raycast
+///
+/// # Returns
+/// - Adjusted desired_distance for NavigationAgent
+fn adjust_distance_for_los(
+    from_entity: Entity,
+    to_entity: Entity,
+    current_distance: Option<f32>,
+    max_distance: f32,
+    visuals: &NonSend<VisualRegistry>,
+    scene_root: &NonSend<crate::systems::SceneRoot>,
+) -> f32 {
+    const MIN_DISTANCE: f32 = 2.0; // Минимальная дистанция (метры)
+    const DISTANCE_STEP: f32 = 2.0; // Шаг уменьшения дистанции (метры)
+
+    // Инициализируем current_distance если None
+    let current = current_distance.unwrap_or(max_distance);
+
+    // Проверяем LOS
+    match check_line_of_sight(from_entity, to_entity, visuals, scene_root) {
+        Some(true) => {
+            // LOS clear → используем текущую distance (не увеличиваем)
+            current
+        }
+        Some(false) => {
+            // LOS blocked → подходим ближе (уменьшаем distance)
+            let new_distance = (current - DISTANCE_STEP).max(MIN_DISTANCE);
+
+            // Логируем только если distance изменилась
+            if (new_distance - current).abs() > 0.1 {
+                voidrun_simulation::log(&format!(
+                    "🔄 LOS blocked: {:?} → {:?}, reducing distance {:.1}m → {:.1}m",
+                    from_entity, to_entity, current, new_distance
+                ));
+            }
+
+            new_distance
+        }
+        None => {
+            // Raycast failed → используем current distance (fallback)
+            current
+        }
+    }
+}
 
 /// Debug: создаёт красный box marker в указанной позиции
 fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
@@ -91,9 +155,10 @@ pub fn process_movement_commands_main_thread(
                 if nav_state.last_follow_target != Some(*target) {
                     nav_state.is_target_reached = false;
                     nav_state.last_follow_target = Some(*target);
+                    nav_state.current_follow_distance = None; // Сброс distance при смене target
 
                     voidrun_simulation::log(&format!(
-                        "Entity {:?}: new FollowEntity target {:?}, reset reached flag",
+                        "Entity {:?}: new FollowEntity target {:?}, reset reached flag + distance",
                         entity, target
                     ));
                 }
@@ -217,11 +282,21 @@ pub fn apply_retreat_velocity_main_thread(
 ///
 /// FollowEntity требует постоянного обновления target_position (target движется).
 /// Эта система работает КАЖДЫЙ КАДР (без Changed<> фильтра).
+///
+/// НОВОЕ: Интегрирован LOS check — если LOS blocked, уменьшаем distance
+/// чтобы NavigationAgent подвёл актора ближе (и возможно расчистил LOS).
+/// Distance сохраняется в NavigationState.current_follow_distance и итеративно уменьшается.
 pub fn update_follow_entity_targets_main_thread(
-    query: Query<(Entity, &MovementCommand)>,
+    mut query: Query<(
+        Entity,
+        &MovementCommand,
+        &mut NavigationState,
+        Option<&voidrun_simulation::combat::WeaponStats>,
+    )>,
     visuals: NonSend<VisualRegistry>,
+    scene_root: NonSend<crate::systems::SceneRoot>,
 ) {
-    for (entity, command) in query.iter() {
+    for (entity, command, mut nav_state, weapon_opt) in query.iter_mut() {
         let MovementCommand::FollowEntity { target } = command else {
             continue;
         };
@@ -243,6 +318,40 @@ pub fn update_follow_entity_targets_main_thread(
         // Обновляем target position каждый кадр (target двигается!)
         let target_pos = target_node.get_position();
         nav_agent.set_target_position(target_pos);
+
+        // Дистанция остановки зависит от типа оружия:
+        // - Melee (attack_radius > 0): подходим вплотную (БЕЗ буфера)
+        // - Ranged (range > 0): держим дистанцию (с буфером безопасности)
+        const RANGED_STOP_BUFFER: f32 = 2.0; // Буфер для ranged оружия
+
+        let (base_distance, weapon_type) = if let Some(weapon) = weapon_opt {
+            if weapon.attack_radius > 0.0 {
+                // Melee weapon — используем attack_radius БЕЗ буфера
+                (weapon.attack_radius, "melee")
+            } else {
+                // Ranged weapon — используем range с буфером
+                ((weapon.range - RANGED_STOP_BUFFER).max(0.5), "ranged")
+            }
+        } else {
+            // Fallback для акторов без оружия
+            (15.0, "default")
+        };
+
+        // Проверяем LOS и корректируем distance если нужно
+        // Передаём current_follow_distance из NavigationState (stateful iteration)
+        let adjusted_distance = adjust_distance_for_los(
+            entity,
+            *target,
+            nav_state.current_follow_distance,
+            base_distance,
+            &visuals,
+            &scene_root,
+        );
+
+        // Сохраняем adjusted distance обратно в NavigationState
+        nav_state.current_follow_distance = Some(adjusted_distance);
+
+        nav_agent.set_target_desired_distance(adjusted_distance);
     }
 }
 

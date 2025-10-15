@@ -99,6 +99,14 @@ pub fn spawn_actor_visuals_main_thread(
         let mut root = scene_root.node.clone();
         root.add_child(&actor_node.clone().upcast::<Node>());
 
+        // КРИТИЧНО: Устанавливаем collision layers явно (даже если есть в TSCN)
+        // Actors (layer 2) коллидируют с Actors + Environment (layers 2,3)
+        if let Ok(mut char_body) = actor_node.clone().try_cast::<godot::classes::CharacterBody3D>() {
+            char_body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ACTORS);
+            char_body.set_collision_mask(crate::collision_layers::COLLISION_MASK_ACTORS);
+            voidrun_simulation::log("  → Collision layers set: Actors (layer 2, mask 2|4)");
+        }
+
         // ПОСЛЕ добавления в SceneTree — добавляем NavigationAgent3D как прямой ребёнок actor_node
         // (NavigationAgent требует чтобы parent был уже в дереве сцены)
         let mut nav_agent = NavigationAgent3D::new_alloc();

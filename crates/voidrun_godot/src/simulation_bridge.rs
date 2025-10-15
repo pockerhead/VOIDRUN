@@ -510,24 +510,24 @@ fn delayed_npc_spawn_system(
             voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
 
             // Спавним 2 NPC с мечами для melee combat теста
-            spawn_test_npc(&mut commands, (10.0, 0.5, 5.0), 1, 300); // Faction 1
-            spawn_test_npc(&mut commands, (6.0, 0.5, 5.0), 1, 300); // Faction 1
-            spawn_test_npc(&mut commands, (5.0, 0.5, 6.0), 1, 300); // Faction 1
-            spawn_test_npc(&mut commands, (6.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_test_npc(&mut commands, (10.0, 0.5, 5.0), 1, 100); // Faction 1
+            spawn_test_npc(&mut commands, (6.0, 0.5, 5.0), 1, 100); // Faction 1
+            spawn_test_npc(&mut commands, (5.0, 0.5, 6.0), 1, 100); // Faction 1
+            spawn_test_npc(&mut commands, (6.0, 0.5, 6.0), 1, 100); // Faction 1
             
-            spawn_test_npc(&mut commands, (26.0, 0.5, 5.0), 1, 300); // Faction 1
-            spawn_test_npc(&mut commands, (25.0, 0.5, 6.0), 1, 300); // Faction 1
-            spawn_test_npc(&mut commands, (21.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_melee_npc(&mut commands, (26.0, 0.5, 5.0), 1, 300); // Faction 1
+            spawn_melee_npc(&mut commands, (25.0, 0.5, 6.0), 1, 300); // Faction 1
+            spawn_melee_npc(&mut commands, (21.0, 0.5, 6.0), 1, 300); // Faction 1
 
-            spawn_test_npc(&mut commands, (-5.0, 0.5, 7.0), 2, 300); // Faction 2
-            spawn_test_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 300); // Faction 2
-            spawn_test_npc(&mut commands, (-6.0, 0.5, -5.0), 2, 300); // Faction 3
-            spawn_test_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 300); // Faction 3
+            spawn_test_npc(&mut commands, (-5.0, 0.5, 7.0), 2, 100); // Faction 2
+            spawn_test_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 100); // Faction 2
+            spawn_test_npc(&mut commands, (-6.0, 0.5, -5.0), 2, 100); // Faction 3
+            spawn_test_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 100); // Faction 3
 
             
-            spawn_test_npc(&mut commands, (-25.0, 0.5, -6.0), 2, 300); // Faction 2
-            spawn_test_npc(&mut commands, (-26.0, 0.5, -5.0), 2, 300); // Faction 3
-            spawn_test_npc(&mut commands, (-16.0, 0.5, -6.0), 2, 300); // Faction 3
+            spawn_melee_npc(&mut commands, (-25.0, 0.5, -6.0), 2, 300); // Faction 2
+            spawn_melee_npc(&mut commands, (-26.0, 0.5, -5.0), 2, 300); // Faction 3
+            spawn_melee_npc(&mut commands, (-16.0, 0.5, -6.0), 2, 300); // Faction 3
                                                                     //    spawn_test_npc(&mut commands, (3.0, 0.5, 0.0), 1, 100, 10);   // Faction 4
                                                                     //    spawn_test_npc(&mut commands, (-5.0, 0.5, 8.0), 2, 100, 10);   // Faction 5
                                                                     //    spawn_test_npc(&mut commands, (9.0, 0.5, -10.0), 3, 100, 10);   // Faction 6

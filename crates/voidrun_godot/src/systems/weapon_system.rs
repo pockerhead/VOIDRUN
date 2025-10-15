@@ -12,6 +12,10 @@ use voidrun_simulation::*;
 use voidrun_simulation::combat::{WeaponFired, WeaponFireIntent};
 use crate::systems::VisualRegistry;
 
+// ============================================================================
+// Systems: Weapon Aim + Fire
+// ============================================================================
+
 /// System: Aim weapon at target (RightHand rotation)
 /// Если актёр в Combat state → поворачиваем руку к target
 ///
@@ -61,8 +65,11 @@ pub fn weapon_aim_main_thread(
 /// ВАЖНО: Использует Godot Transform из VisualRegistry (authoritative!)
 pub fn process_weapon_fire_intents_main_thread(
     mut intent_events: EventReader<WeaponFireIntent>,
+    actors: Query<&Actor>,
     visuals: NonSend<VisualRegistry>,
+    scene_root: NonSend<crate::systems::SceneRoot>,
     mut fire_events: EventWriter<WeaponFired>,
+    mut commands: Commands,
 ) {
     for intent in intent_events.read() {
         // Получаем shooter node
@@ -104,10 +111,115 @@ pub fn process_weapon_fire_intents_main_thread(
             continue;
         }
 
-        // TODO: Line of sight check (raycast от shooter к target)
-        // if !has_line_of_sight(shooter_pos, target_pos, world) { continue; }
+        // ✅ Line-of-Sight Check: raycast от shooter к target (eye-level Y+0.8)
+        let shooter_eye = shooter_pos + Vector3::new(0.0, 0.8, 0.0);
+        let target_eye = target_pos + Vector3::new(0.0, 0.8, 0.0);
 
-        // ✅ Tactical validation passed → генерируем WeaponFired
+        let world = scene_root.node.get_world_3d();
+        let Some(mut world) = world else {
+            voidrun_simulation::log_error("process_weapon_fire_intents: World3D не найден");
+            continue;
+        };
+
+        let space = world.get_direct_space_state();
+        let Some(mut space) = space else {
+            voidrun_simulation::log_error("process_weapon_fire_intents: PhysicsDirectSpaceState3D не найден");
+            continue;
+        };
+
+        // Создаём raycast query
+        let query_params = godot::classes::PhysicsRayQueryParameters3D::create(shooter_eye, target_eye);
+        let Some(mut query) = query_params else {
+            voidrun_simulation::log_error("process_weapon_fire_intents: PhysicsRayQueryParameters3D::create failed");
+            continue;
+        };
+
+        // Collision mask: Actors + Environment (LOS check)
+        query.set_collision_mask(crate::collision_layers::COLLISION_MASK_RAYCAST_LOS);
+
+        let empty_array = godot::prelude::Array::new();
+        query.set_exclude(&empty_array); // Проверяем все коллизии
+
+        // Выполняем raycast
+        let result = space.intersect_ray(&query);
+
+        // Проверяем результат
+        if result.is_empty() {
+            // Нет коллизий → странно (target должен быть виден), НЕ стреляем
+            voidrun_simulation::log(&format!(
+                "🚫 LOS CHECK FAILED: no raycast hit (shooter {:?} → target {:?}, distance {:.1}m) - possible raycast bug or target out of range",
+                intent.shooter, intent.target, distance
+            ));
+            continue;
+        }
+
+        {
+            // Есть коллизия → проверяем что это target
+            let Some(collider_variant) = result.get("collider") else {
+                voidrun_simulation::log_error("process_weapon_fire_intents: raycast result missing 'collider'");
+                continue;
+            };
+
+            let Ok(collider_node) = collider_variant.try_to::<Gd<godot::classes::Node>>() else {
+                voidrun_simulation::log_error("process_weapon_fire_intents: collider не является Node");
+                continue;
+            };
+
+            let collider_id = collider_node.instance_id();
+
+            // Получаем target node instance_id
+            let target_instance_id = target_node.instance_id();
+
+            // Если попали в target → всё OK, продолжаем
+            if collider_id == target_instance_id {
+                // LOS clear, попали точно в target
+            } else {
+                // Попали НЕ в target → проверяем что это (стена? союзник? враг?)
+
+                // Пытаемся найти entity по collider instance_id (reverse lookup)
+                let Some(&collider_entity) = visuals.node_to_entity.get(&collider_id) else {
+                    // Не actor → вероятно стена/препятствие (layer 3)
+                    // LOS blocked → отклоняем fire intent (movement_system обработает)
+                    voidrun_simulation::log(&format!(
+                        "🚫 LOS BLOCKED BY OBSTACLE: shooter {:?} → target {:?} (obstacle: {:?}) - fire intent rejected",
+                        intent.shooter, intent.target, collider_id
+                    ));
+                    continue;
+                };
+
+                // Это actor → проверяем faction
+                let Ok(collider_actor) = actors.get(collider_entity) else {
+                    voidrun_simulation::log(&format!(
+                        "⚠️ Collider entity {:?} has no Actor component",
+                        collider_entity
+                    ));
+                    continue;
+                };
+
+                let Ok(shooter_actor) = actors.get(intent.shooter) else {
+                    continue;
+                };
+
+                if collider_actor.faction_id == shooter_actor.faction_id {
+                    // Союзник на линии огня → НЕ стреляем
+                    voidrun_simulation::log(&format!(
+                        "🚫 FRIENDLY FIRE RISK: shooter {:?} (faction {}) won't shoot through ally {:?} (faction {}) at target {:?}",
+                        intent.shooter, shooter_actor.faction_id, collider_entity, collider_actor.faction_id, intent.target
+                    ));
+                    continue;
+                }
+
+                // Враг на линии огня → попадём в него, не в target
+                // LOS blocked → отклоняем fire intent (movement_system обработает)
+                voidrun_simulation::log(&format!(
+                    "🚫 LOS BLOCKED BY ENEMY: shooter {:?} won't shoot - enemy {:?} (faction {}) blocks path to target {:?} - fire intent rejected",
+                    intent.shooter, collider_entity, collider_actor.faction_id, intent.target
+                ));
+                continue;
+            }
+        }
+
+        // ✅ All tactical validations passed → генерируем WeaponFired
         fire_events.write(WeaponFired {
             shooter: intent.shooter,
             target: intent.target,
@@ -210,9 +322,10 @@ fn spawn_godot_projectile(
 
     projectile.set_position(position);
 
-    // Collision layers: layer 4 (projectile), mask 2 (actors only, не projectiles)
-    projectile.set_collision_layer(4);
-    projectile.set_collision_mask(2);
+    // Collision layers: Projectiles (layer 4)
+    // Collision mask: Actors + Environment (projectiles hit actors and walls)
+    projectile.set_collision_layer(crate::collision_layers::COLLISION_LAYER_PROJECTILES);
+    projectile.set_collision_mask(crate::collision_layers::COLLISION_MASK_PROJECTILES);
 
     // Debug: проверяем что layers установлены
     voidrun_simulation::log(&format!(
