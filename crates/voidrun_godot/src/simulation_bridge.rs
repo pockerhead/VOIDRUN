@@ -76,6 +76,7 @@ impl INode3D for SimulationBridge {
 
         // 4.3 Регистрируем visual sync systems (_main_thread = Godot API)
         use crate::systems::{
+            ai_react_to_incoming_attacks_main_thread,
             apply_navigation_velocity_main_thread,
             apply_retreat_velocity_main_thread,
             apply_safe_velocity_system, // NavigationAgent3D avoidance
@@ -86,6 +87,8 @@ impl INode3D for SimulationBridge {
             detach_prefabs_main_thread,
             disable_collision_on_death_main_thread,
             execute_melee_attacks_main_thread,
+            execute_parry_animations_main_thread,
+            execute_stagger_animations_main_thread,
             poll_melee_hitboxes_main_thread,
             poll_vision_cones_main_thread,
             process_godot_projectile_hits,
@@ -143,9 +146,12 @@ impl INode3D for SimulationBridge {
                 process_weapon_fire_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
                 weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
                 process_godot_projectile_hits,           // Godot queue → ECS ProjectileHit events
+                ai_react_to_incoming_attacks_main_thread, // CombatAIEvent::EnemyAttackTelegraphed → ParryIntent (facing/distance validation)
                 process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
                 execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox
-                poll_melee_hitboxes_main_thread, // Poll hitbox overlaps during Active phase → MeleeHit events
+                execute_parry_animations_main_thread, // ParryState changed → play melee_parry/melee_parry_recover animations
+                execute_stagger_animations_main_thread, // StaggerState added → interrupt attack, play RESET
+                poll_melee_hitboxes_main_thread, // Poll hitbox overlaps during ActiveHitbox phase → MeleeHit events
             ),
         );
 

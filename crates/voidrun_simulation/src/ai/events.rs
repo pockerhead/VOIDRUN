@@ -59,3 +59,24 @@ pub enum GodotNavigationEvent {
         entity: Entity,
     },
 }
+
+/// Combat события (ECS → ECS, для AI reaction)
+///
+/// Эти события генерируются в ECS combat системах и используются AI для принятия решений.
+#[derive(Event, Debug, Clone)]
+pub enum CombatAIEvent {
+    /// Враг замахнулся для атаки (telegraph/windup начался)
+    ///
+    /// AI может среагировать: парировать, уклониться, блокировать.
+    /// **Важно:** событие отправляется ТОЛЬКО если defender в боевом состоянии (Combat AI state).
+    EnemyAttackTelegraphed {
+        /// Кто атакует
+        attacker: Entity,
+        /// Кого атакуют (получатель события)
+        target: Entity,
+        /// Тип атаки (для выбора defensive action)
+        attack_type: crate::combat::AttackType,
+        /// Сколько времени до начала активной фазы (seconds)
+        windup_remaining: f32,
+    },
+}

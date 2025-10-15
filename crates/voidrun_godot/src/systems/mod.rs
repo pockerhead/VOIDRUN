@@ -5,6 +5,7 @@ pub mod vision_system;
 pub mod weapon_system;
 pub mod melee_system;
 pub mod movement_system;
+pub mod ai_combat;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
 pub use vision_system::VisionTracking;
@@ -39,6 +40,12 @@ pub use melee_system::{
     process_melee_attack_intents_main_thread,
     execute_melee_attacks_main_thread,
     poll_melee_hitboxes_main_thread,
+    execute_parry_animations_main_thread,
+    execute_stagger_animations_main_thread,
+};
+
+pub use ai_combat::{
+    ai_react_to_incoming_attacks_main_thread,
 };
 
 pub use movement_system::{

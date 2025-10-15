@@ -10,7 +10,7 @@ pub mod events;
 
 // Re-export основных типов
 pub use simple_fsm::{AIState, AIConfig, SpottedEnemies, ai_react_to_gunfire, react_to_damage};
-pub use events::{GodotAIEvent, GodotTransformEvent, GodotNavigationEvent};
+pub use events::{GodotAIEvent, GodotTransformEvent, GodotNavigationEvent, CombatAIEvent};
 
 /// AI Plugin
 ///
@@ -25,10 +25,11 @@ pub struct AIPlugin;
 
 impl Plugin for AIPlugin {
     fn build(&self, app: &mut App) {
-        // Регистрируем AI events (Godot → ECS)
+        // Регистрируем AI events (Godot → ECS, ECS → ECS)
         app.add_event::<GodotAIEvent>();
         app.add_event::<GodotTransformEvent>();
         app.add_event::<GodotNavigationEvent>();
+        app.add_event::<CombatAIEvent>();
         app.add_systems(
             FixedUpdate,
             (

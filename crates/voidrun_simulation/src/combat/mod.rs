@@ -23,13 +23,28 @@ pub mod weapon_stats;
 // Re-export основных типов
 pub use damage::{DamageDealt, DamageSource, EntityDied, Dead, DespawnAfter, calculate_damage};
 pub use melee::{
-    MeleeAttackState, AttackPhase, MeleeAttackIntent, MeleeAttackStarted, MeleeHit,
-    MeleeAttackType, push_melee_hit, drain_melee_hit_queue,
+    // Components
+    MeleeAttackState, AttackPhase, ParryState, ParryPhase, StaggerState, ParryDelayTimer,
+    // Events
+    MeleeAttackIntent, MeleeAttackStarted, MeleeHit, ParryIntent, ParrySuccess,
+    MeleeAttackType,
+    // Attack systems
     ai_melee_attack_intent, start_melee_attacks, update_melee_attack_phases, process_melee_hits,
+    // Parry systems
+    start_parry, update_parry_states, update_stagger_states, process_parry_delay_timers,
 };
 pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
 pub use weapon::{WeaponFired, WeaponFireIntent, ProjectileHit};
 pub use weapon_stats::{WeaponStats, WeaponType, update_weapon_cooldowns};
+
+/// Type of attack (for AI decision-making and telegraph events).
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub enum AttackType {
+    /// Melee attack (close range, hitbox-based)
+    Melee,
+    /// Ranged attack (projectile-based)
+    Ranged,
+}
 
 /// Combat Plugin (Godot-driven architecture)
 ///
@@ -55,7 +70,9 @@ impl Plugin for CombatPlugin {
             .add_event::<ProjectileHit>()
             .add_event::<MeleeAttackIntent>()
             .add_event::<MeleeAttackStarted>()
-            .add_event::<MeleeHit>();
+            .add_event::<MeleeHit>()
+            .add_event::<ParryIntent>()
+            .add_event::<ParrySuccess>();
 
         // Регистрация систем в FixedUpdate
         app.add_systems(
@@ -72,6 +89,12 @@ impl Plugin for CombatPlugin {
                 // Фаза 3: Attack execution (start attacks from approved intents)
                 start_melee_attacks,
                 update_melee_attack_phases,
+
+                // Фаза 3.5: Parry system (defensive actions)
+                process_parry_delay_timers, // Tick delay timers → generate ParryIntent
+                start_parry,
+                update_parry_states, // Includes parry success check at critical moment
+                update_stagger_states,
 
                 // Фаза 4: Damage application (from Godot events + projectiles + melee hits)
                 damage::apply_damage,

@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://b11myb8dfjdc6"]
+[gd_scene load_steps=18 format=3 uid="uid://b11myb8dfjdc6"]
 
 [ext_resource type="Shape3D" uid="uid://chinlvaytthss" path="res://resources/shapes/vision_con.tres" id="1_6ks1i"]
 [ext_resource type="PackedScene" uid="uid://bj2qcb44w60l4" path="res://actors/test_sword.tscn" id="2_qev7w"]
@@ -145,7 +145,7 @@ _data = {
 
 [sub_resource type="Animation" id="Animation_50585"]
 resource_name = "melee_parry"
-length = 0.2
+length = 0.1
 tracks/0/type = "value"
 tracks/0/imported = false
 tracks/0/enabled = true
@@ -153,10 +153,10 @@ tracks/0/path = NodePath("RightHand:position")
 tracks/0/interp = 1
 tracks/0/loop_wrap = true
 tracks/0/keys = {
-"times": PackedFloat32Array(0, 0.099082984, 0.2),
-"transitions": PackedFloat32Array(0.43527532, 2.639016, 1),
+"times": PackedFloat32Array(0, 0.099082984),
+"transitions": PackedFloat32Array(0.43527532, 2.639016),
 "update": 0,
-"values": [Vector3(-0.5, 0, 0), Vector3(-0.5, 0.44433093, -0.63288087), Vector3(-0.5, 0, 0)]
+"values": [Vector3(-0.5, 0, 0), Vector3(-0.5, 0.44433093, -0.63288087)]
 }
 tracks/1/type = "value"
 tracks/1/imported = false
@@ -165,10 +165,10 @@ tracks/1/path = NodePath("RightHand:rotation")
 tracks/1/interp = 1
 tracks/1/loop_wrap = true
 tracks/1/keys = {
-"times": PackedFloat32Array(0, 0.099082984, 0.2),
-"transitions": PackedFloat32Array(0.5946036, 2.219139, 1),
+"times": PackedFloat32Array(0, 0.099082984),
+"transitions": PackedFloat32Array(0.5946036, 2.219139),
 "update": 0,
-"values": [Vector3(0, 0, 0), Vector3(0.42816666, 0.104637474, -1.1240165), Vector3(0, 0, 0)]
+"values": [Vector3(0, 0, 0), Vector3(0.42816666, 0.104637474, -1.1240165)]
 }
 
 [sub_resource type="Animation" id="Animation_0oe08"]
@@ -198,10 +198,39 @@ tracks/1/keys = {
 "values": [Vector3(0, 0, 0)]
 }
 
+[sub_resource type="Animation" id="Animation_qev7w"]
+resource_name = "melee_parry_recover"
+length = 0.1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.1),
+"transitions": PackedFloat32Array(2.297398, 1),
+"update": 0,
+"values": [Vector3(-0.5, 0.44433093, -0.63288087), Vector3(-0.5, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.1),
+"transitions": PackedFloat32Array(2.4622903, 1),
+"update": 0,
+"values": [Vector3(0.42816666, 0.104637474, -1.1240165), Vector3(0, 0, 0)]
+}
+
 [sub_resource type="AnimationLibrary" id="AnimationLibrary_kyktt"]
 _data = {
 &"RESET": SubResource("Animation_0oe08"),
-&"melee_parry": SubResource("Animation_50585")
+&"melee_parry": SubResource("Animation_50585"),
+&"melee_parry_recover": SubResource("Animation_qev7w")
 }
 
 [node name="Actor" type="CharacterBody3D"]

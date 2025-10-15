@@ -15,6 +15,8 @@ voidrun_simulation = { path = "../voidrun_simulation" }
 bevy = { workspace = true }
 # Logging с timestamps
 chrono = "0.4"
+# Random number generation
+rand = "0.8"
 
 [profile.release]
 opt-level = 3

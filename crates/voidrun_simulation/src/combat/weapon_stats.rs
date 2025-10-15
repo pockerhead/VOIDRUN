@@ -59,7 +59,22 @@ pub struct WeaponStats {
     pub recovery_duration: f32,
 
     /// Parry window duration (окно парирования) (секунды)
+    ///
+    /// First portion of Active phase where attacker can be parried.
+    /// Hitbox is disabled during this window.
     pub parry_window: f32,
+
+    /// Parry active window duration (seconds)
+    ///
+    /// How long defender's parry window stays active after pressing parry button.
+    /// This is the window where defender can successfully parry incoming attacks.
+    pub parry_active_duration: f32,
+
+    /// Stagger duration after being parried (seconds)
+    ///
+    /// How long attacker is stunned after being successfully parried.
+    /// During stagger, attacker cannot perform any actions.
+    pub stagger_duration: f32,
 
     // === Ranged-specific stats ===
     /// Дальность выстрела (метры)
@@ -111,7 +126,9 @@ impl WeaponStats {
             windup_duration: 0.3,
             attack_duration: 0.3,
             recovery_duration: 0.3,
-            parry_window: 0.15,
+            parry_window: 0.1,              // 33% of 0.3s attack
+            parry_active_duration: 0.2,     // 200ms parry window for defender
+            stagger_duration: 1.5,          // 1.5s stun after being parried
 
             // Ranged stats (unused для melee)
             range: 0.0,
@@ -134,6 +151,8 @@ impl WeaponStats {
             attack_duration: 0.0,
             recovery_duration: 0.0,
             parry_window: 0.0,
+            parry_active_duration: 0.0,
+            stagger_duration: 0.0,
 
             // Ranged stats
             range: 20.0,

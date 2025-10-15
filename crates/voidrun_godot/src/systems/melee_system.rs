@@ -32,7 +32,7 @@ use bevy::prelude::*;
 use godot::prelude::*;
 use voidrun_simulation::combat::{
     MeleeAttackIntent, MeleeAttackStarted, MeleeAttackState, AttackPhase,
-    WeaponStats,
+    WeaponStats, ParryState,
 };
 
 use crate::systems::{VisualRegistry, AttachmentRegistry};
@@ -48,10 +48,17 @@ pub fn process_melee_attack_intents_main_thread(
     mut intent_events: EventReader<MeleeAttackIntent>,
     visuals: NonSend<VisualRegistry>,
     weapons: Query<&WeaponStats>,
+    attack_states: Query<&MeleeAttackState>,
     mut started_events: EventWriter<MeleeAttackStarted>,
 ) {
     for intent in intent_events.read() {
         voidrun_simulation::log(&format!("📥 Godot: Received melee intent (attacker: {:?}, target: {:?})", intent.attacker, intent.target));
+
+        // Skip if attacker already has MeleeAttackState (attack in progress)
+        if attack_states.get(intent.attacker).is_ok() {
+            voidrun_simulation::log(&format!("⏸️ Godot: Attacker {:?} already attacking, ignoring intent", intent.attacker));
+            continue;
+        }
 
         // Get Godot nodes
         let Some(attacker_node) = visuals.visuals.get(&intent.attacker) else {
@@ -171,20 +178,35 @@ pub fn execute_melee_attacks_main_thread(
                 }
             }
 
-            AttackPhase::Active { duration } => {
-                // Trigger swing animation + enable hitbox
+            AttackPhase::ActiveParryWindow { duration } => {
+                // Parry window: swing animation starts, hitbox DISABLED
                 if let Some(mut player) = anim_player {
                     let anim_length = get_animation_length(&mut player, "melee_swing");
-                    let speed_scale = anim_length / duration;
+
+                    // Calculate total active duration (parry + hitbox)
+                    let total_active = weapon.attack_duration;
+                    let speed_scale = anim_length / total_active;
 
                     player.set_speed_scale(speed_scale);
                     player.play_ex().name("melee_swing").done();
 
                     voidrun_simulation::log(&format!(
-                        "⚔️ Godot: Playing 'melee_swing' (entity: {:?}, duration: {:.2}s, speed: {:.2}x)",
+                        "⚔️ Godot: Playing 'melee_swing' (ActiveParryWindow) (entity: {:?}, duration: {:.3}s, speed: {:.2}x, hitbox: OFF)",
                         entity, duration, speed_scale
                     ));
                 }
+                // Hitbox OFF during parry window
+                enable_weapon_hitbox(&weapon_attachment, false);
+            }
+
+            AttackPhase::ActiveHitbox { duration } => {
+                // Hitbox window: enable hitbox (animation continues)
+                voidrun_simulation::log(&format!(
+                    "💥 Godot: ActiveHitbox phase (entity: {:?}, duration: {:.3}s, hitbox: ON)",
+                    entity, duration
+                ));
+
+                // Enable hitbox (animation already playing from ActiveParryWindow)
                 enable_weapon_hitbox(&weapon_attachment, true);
             }
 
@@ -229,8 +251,8 @@ pub fn poll_melee_hitboxes_main_thread(
     mut melee_hit_events: EventWriter<voidrun_simulation::combat::MeleeHit>,
 ) {
     for (attacker, mut attack_state) in query.iter_mut() {
-        // Only check during Active phase
-        let AttackPhase::Active { .. } = &attack_state.phase else {
+        // Only check during ActiveHitbox phase (NOT ActiveParryWindow!)
+        let AttackPhase::ActiveHitbox { .. } = &attack_state.phase else {
             continue;
         };
 
@@ -342,5 +364,103 @@ fn enable_weapon_hitbox(weapon_node: &Gd<Node3D>, enabled: bool) {
         voidrun_simulation::log("✅ Godot: Weapon hitbox enabled");
     } else {
         voidrun_simulation::log("❌ Godot: Weapon hitbox disabled");
+    }
+}
+
+/// System: Execute parry animations (two-phase: Windup → Recovery).
+///
+/// Listens to `Changed<ParryState>` to trigger animations for each phase:
+/// - Windup: plays "melee_parry" (0.1s)
+/// - Recovery: plays "melee_parry_recover" (0.1s)
+pub fn execute_parry_animations_main_thread(
+    query: Query<(Entity, &ParryState), Changed<ParryState>>,
+    visuals: NonSend<VisualRegistry>,
+) {
+    use voidrun_simulation::combat::ParryPhase;
+
+    for (entity, parry_state) in query.iter() {
+        // Get defender node
+        let Some(defender_node) = visuals.visuals.get(&entity) else {
+            continue;
+        };
+
+        // Get DefenceAnimationPlayer (отдельный player для парирования)
+        let Some(mut anim_player) = defender_node
+            .try_get_node_as::<godot::classes::AnimationPlayer>("DefenceAnimationPlayer")
+        else {
+            voidrun_simulation::log(&format!(
+                "⚠️ Godot: Entity {:?} has no DefenceAnimationPlayer for parry animation",
+                entity
+            ));
+            continue;
+        };
+
+        // Play animation based on current phase
+        match &parry_state.phase {
+            ParryPhase::Windup { duration } => {
+                // Play melee_parry animation with speed adjusted to windup duration
+                let anim_length = get_animation_length(&mut anim_player, "melee_parry");
+                let speed_scale = anim_length / duration;
+
+                anim_player.set_speed_scale(speed_scale);
+                anim_player.play_ex().name("melee_parry").done();
+
+                voidrun_simulation::log(&format!(
+                    "🛡️ Godot: Playing 'melee_parry' (Windup) (entity: {:?}, duration: {:.3}s, speed: {:.2}x)",
+                    entity, duration, speed_scale
+                ));
+            }
+
+            ParryPhase::Recovery { duration } => {
+                // Play melee_parry_recover animation
+                let anim_length = get_animation_length(&mut anim_player, "melee_parry_recover");
+                let speed_scale = anim_length / duration;
+
+                anim_player.set_speed_scale(speed_scale);
+                anim_player.play_ex().name("melee_parry_recover").done();
+
+                voidrun_simulation::log(&format!(
+                    "🛡️ Godot: Playing 'melee_parry_recover' (Recovery) (entity: {:?}, duration: {:.3}s, speed: {:.2}x)",
+                    entity, duration, speed_scale
+                ));
+            }
+        }
+    }
+}
+
+/// System: Execute stagger animations when StaggerState is added.
+///
+/// Listens to `Added<StaggerState>` to trigger stagger reaction:
+/// - Plays "RESET" animation (temp, later will be dedicated stagger animation)
+/// - Interrupts any ongoing attack animation
+pub fn execute_stagger_animations_main_thread(
+    query: Query<Entity, Added<voidrun_simulation::combat::StaggerState>>,
+    visuals: NonSend<VisualRegistry>,
+) {
+    for entity in query.iter() {
+        // Get staggered entity node
+        let Some(node) = visuals.visuals.get(&entity) else {
+            continue;
+        };
+
+        // Get MeleeSwingAnimationPlayer (attack animations)
+        let Some(mut anim_player) = node
+            .try_get_node_as::<godot::classes::AnimationPlayer>("MeleeSwingAnimationPlayer")
+        else {
+            voidrun_simulation::log(&format!(
+                "⚠️ Godot: Entity {:?} has no MeleeSwingAnimationPlayer for stagger interrupt",
+                entity
+            ));
+            continue;
+        };
+
+        // Interrupt attack animation → play RESET
+        anim_player.set_speed_scale(1.0);
+        anim_player.play_ex().name("RESET").done();
+
+        voidrun_simulation::log(&format!(
+            "💫 Godot: Stagger animation (entity: {:?}) - attack interrupted, playing RESET",
+            entity
+        ));
     }
 }
