@@ -50,6 +50,34 @@ tracks/1/keys = {
 "values": [Vector3(0, 0, 0)]
 }
 
+[sub_resource type="Animation" id="Animation_6ks1i"]
+resource_name = "melee_recovery"
+length = 0.2
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.2),
+"transitions": PackedFloat32Array(0.5176324, 1),
+"update": 0,
+"values": [Vector3(0.01, -0.14, -0.63), Vector3(-0.5, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("RightHand:rotation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.2),
+"transitions": PackedFloat32Array(0.5176324, 1),
+"update": 0,
+"values": [Vector3(-2.3823745, 0.6981317, -1.0559242), Vector3(0, 0, 0)]
+}
+
 [sub_resource type="Animation" id="Animation_cnsat"]
 resource_name = "melee_swing"
 length = 0.3
@@ -106,9 +134,16 @@ tracks/1/keys = {
 "values": [Vector3(0, 0, 0), Vector3(0.47996554, 0, 0.38397244)]
 }
 
-[sub_resource type="Animation" id="Animation_6ks1i"]
-resource_name = "melee_recovery"
-length = 0.2
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_50585"]
+_data = {
+&"RESET": SubResource("Animation_dyjn2"),
+&"melee_recovery": SubResource("Animation_6ks1i"),
+&"melee_swing": SubResource("Animation_cnsat"),
+&"melee_windup": SubResource("Animation_r8356")
+}
+
+[sub_resource type="Animation" id="Animation_0oe08"]
+length = 0.001
 tracks/0/type = "value"
 tracks/0/imported = false
 tracks/0/enabled = true
@@ -116,10 +151,10 @@ tracks/0/path = NodePath("RightHand:position")
 tracks/0/interp = 1
 tracks/0/loop_wrap = true
 tracks/0/keys = {
-"times": PackedFloat32Array(0, 0.2),
-"transitions": PackedFloat32Array(0.5176324, 1),
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
 "update": 0,
-"values": [Vector3(0.01, -0.14, -0.63), Vector3(-0.5, 0, 0)]
+"values": [Vector3(-0.5, 0, 0)]
 }
 tracks/1/type = "value"
 tracks/1/imported = false
@@ -128,18 +163,10 @@ tracks/1/path = NodePath("RightHand:rotation")
 tracks/1/interp = 1
 tracks/1/loop_wrap = true
 tracks/1/keys = {
-"times": PackedFloat32Array(0, 0.2),
-"transitions": PackedFloat32Array(0.5176324, 1),
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
 "update": 0,
-"values": [Vector3(-2.3823745, 0.6981317, -1.0559242), Vector3(0, 0, 0)]
-}
-
-[sub_resource type="AnimationLibrary" id="AnimationLibrary_50585"]
-_data = {
-&"RESET": SubResource("Animation_dyjn2"),
-&"melee_recovery": SubResource("Animation_6ks1i"),
-&"melee_swing": SubResource("Animation_cnsat"),
-&"melee_windup": SubResource("Animation_r8356")
+"values": [Vector3(0, 0, 0)]
 }
 
 [sub_resource type="Animation" id="Animation_50585"]
@@ -168,33 +195,6 @@ tracks/1/keys = {
 "transitions": PackedFloat32Array(0.5946036, 2.219139),
 "update": 0,
 "values": [Vector3(0, 0, 0), Vector3(0.42816666, 0.104637474, -1.1240165)]
-}
-
-[sub_resource type="Animation" id="Animation_0oe08"]
-length = 0.001
-tracks/0/type = "value"
-tracks/0/imported = false
-tracks/0/enabled = true
-tracks/0/path = NodePath("RightHand:position")
-tracks/0/interp = 1
-tracks/0/loop_wrap = true
-tracks/0/keys = {
-"times": PackedFloat32Array(0),
-"transitions": PackedFloat32Array(1),
-"update": 0,
-"values": [Vector3(-0.5, 0, 0)]
-}
-tracks/1/type = "value"
-tracks/1/imported = false
-tracks/1/enabled = true
-tracks/1/path = NodePath("RightHand:rotation")
-tracks/1/interp = 1
-tracks/1/loop_wrap = true
-tracks/1/keys = {
-"times": PackedFloat32Array(0),
-"transitions": PackedFloat32Array(1),
-"update": 0,
-"values": [Vector3(0, 0, 0)]
 }
 
 [sub_resource type="Animation" id="Animation_qev7w"]

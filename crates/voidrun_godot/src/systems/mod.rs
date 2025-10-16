@@ -5,7 +5,6 @@ pub mod vision_system;
 pub mod weapon_system;
 pub mod melee_system;
 pub mod movement_system;
-pub mod ai_combat;
 pub mod ai_melee_combat_decision;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
@@ -18,7 +17,6 @@ pub use visual_sync::{
     sync_ai_state_labels_main_thread,
     disable_collision_on_death_main_thread,
     despawn_actor_visuals_main_thread,
-    // УДАЛЕНО: sync_transforms_main_thread (ADR-005)
 };
 
 pub use attachment_system::{
@@ -51,6 +49,7 @@ pub use ai_melee_combat_decision::{
 };
 
 pub use movement_system::{
+    apply_gravity_to_all_actors, // Gravity + jump для ВСЕХ акторов (ПЕРВАЯ!)
     process_movement_commands_main_thread,
     update_follow_entity_targets_main_thread,
     apply_retreat_velocity_main_thread,

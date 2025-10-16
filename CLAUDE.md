@@ -20,6 +20,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+ПУТЬ К ПРОЕКТУ 3d-rpg для референсов - "C:\Users\user\dev\gamedev\3d-rpg"
+
 ## Project Snapshot
 
 **Type:** Systems-driven space RPG (Kenshi в космосе с STALKER combat)

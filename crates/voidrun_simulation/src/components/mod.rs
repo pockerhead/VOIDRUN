@@ -7,13 +7,15 @@
 //! - ai: искусственный интеллект (AIState, AIConfig, SpottedEnemies)
 //! - world: позиционирование в мире (StrategicPosition, PrefabPath)
 //! - attachment: динамические префабы (Attachment, AttachmentType)
+//! - player: player control marker (Player)
 
-mod actor;
-mod combat;
-mod movement;
-mod ai;
-mod world;
-mod attachment;
+pub mod actor;
+pub mod combat;
+pub mod movement;
+pub mod ai;
+pub mod world;
+pub mod attachment;
+pub mod player;
 
 // Re-exports для удобного импорта
 pub use actor::*;
@@ -22,3 +24,4 @@ pub use movement::*;
 pub use ai::*;
 pub use world::*;
 pub use attachment::*;
+pub use player::*;

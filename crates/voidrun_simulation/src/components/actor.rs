@@ -13,6 +13,16 @@ pub struct Actor {
     pub faction_id: u64,
 }
 
+/// Маркер компонент для игрока (player-controlled actor)
+///
+/// Отличает player от NPC:
+/// - Player получает input events (WASD, mouse, attack/parry)
+/// - Player имеет first-person camera
+/// - Player HUD (health, stamina, crosshair)
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct PlayerControlled;
+
 /// Здоровье актора
 ///
 /// Инвариант: 0 ≤ current ≤ max

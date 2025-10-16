@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Read(//c/Users/user/dev/gamedev/3d-rpg/**)",
+      "Bash(cargo build:*)"
     ],
     "deny": [],
     "ask": []

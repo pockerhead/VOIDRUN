@@ -374,7 +374,7 @@ pub fn apply_navigation_velocity_main_thread(
     visuals: NonSend<VisualRegistry>,
     mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
-    const MOVE_SPEED: f32 = 10.0; // метры в секунду
+    const MOVE_SPEED: f32 = 5.0; // метры в секунду
 
     for (entity, mut ai_state, mut nav_state) in query.iter_mut() {
         // actor_node теперь САМ CharacterBody3D (root node из TSCN)
@@ -623,13 +623,88 @@ pub fn apply_safe_velocity_system(
         }
 
         // Применяем velocity только если should_move = true
+        // NOTE: velocity.y управляется отдельной системой apply_gravity_to_all_actors
         if should_move {
             body.set_velocity(scaled_velocity);
         } else {
             // Не двигаемся, только поворачиваемся
-            body.set_velocity(Vector3::new(0.0, safe_vel_godot.y, 0.0)); // Сохраняем Y для гравитации
+            // Сохраняем текущую Y velocity (gravity уже применена в apply_gravity_to_all_actors)
+            let current_y = body.get_velocity().y;
+            body.set_velocity(Vector3::new(0.0, current_y, 0.0));
         }
 
+        body.move_and_slide();
+    }
+}
+
+/// Применение гравитации ко ВСЕМ акторам (каждый frame, как в 3d-rpg)
+///
+/// Flow:
+/// 1. Для ВСЕХ акторов (With<Actor>) каждый frame
+/// 2. Проверяем is_on_floor() (встроенное в CharacterBody3D)
+/// 3. На земле: velocity.y = 0 (или JUMP_SPEED если JumpIntent)
+/// 4. В воздухе: velocity.y -= GRAVITY * delta
+/// 5. Вызываем move_and_slide() для обновления collision detection
+///
+/// КРИТИЧНО:
+/// - Запускается ПЕРЕД apply_navigation_velocity (первая в цепочке)
+/// - Работает для Idle/Moving/Combat акторов (независимо от movement state)
+/// - move_and_slide() вызывается КАЖДЫЙ FRAME для КАЖДОГО актора
+///
+/// Архитектура как в 3d-rpg:
+/// - Manual gravity calculation (не Physics3D engine)
+/// - CharacterBody3D для deterministic movement
+/// - is_on_floor() для grounding detection
+pub fn apply_gravity_to_all_actors(
+    actor_query: Query<Entity, With<voidrun_simulation::Actor>>,
+    mut jump_events: EventReader<voidrun_simulation::JumpIntent>,
+    visuals: NonSend<VisualRegistry>,
+    time: Res<Time>,
+) {
+    use godot::classes::CharacterBody3D;
+    use std::collections::HashSet;
+
+    // Параметры гравитации (как в 3d-rpg)
+    const GRAVITY: f32 = 9.8; // m/s² (Earth gravity)
+    const JUMP_SPEED: f32 = 4.5; // m/s (vertical velocity)
+
+    let delta = time.delta_secs();
+
+    // Собираем entities из JumpIntent events
+    let jump_entities: HashSet<Entity> = jump_events.read().map(|e| e.entity).collect();
+
+    for entity in actor_query.iter() {
+        let Some(actor_node) = visuals.visuals.get(&entity).cloned() else {
+            continue;
+        };
+
+        let mut body = actor_node.cast::<CharacterBody3D>();
+
+        // Читаем текущую velocity
+        let mut velocity = body.get_velocity();
+
+        // Manual gravity (как в 3d-rpg: player.gd:68-71, enemy.gd:41-45)
+        if body.is_on_floor() {
+            // На земле → проверяем JumpIntent
+            if jump_entities.contains(&entity) {
+                velocity.y = JUMP_SPEED; // Прыгаем!
+                voidrun_simulation::log(&format!(
+                    "Entity {:?}: jump! velocity.y = {:.1} m/s",
+                    entity, JUMP_SPEED
+                ));
+            } else {
+                velocity.y = 0.0; // Стоим на земле
+            }
+        } else {
+            // В воздухе → применяем гравитацию
+            velocity.y -= GRAVITY * delta;
+        }
+
+        // Применяем обновлённую velocity
+        body.set_velocity(velocity);
+
+        // ✅ КРИТИЧНО: move_and_slide() каждый frame для collision detection
+        // Без этого CharacterBody3D не обновляет is_on_floor() и проваливается сквозь пол
         body.move_and_slide();
     }
 }

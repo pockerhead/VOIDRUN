@@ -50,6 +50,9 @@ pub struct SimulationBridge {
 
     /// FPS label для on-screen display
     fps_label: Option<Gd<Label>>,
+
+    /// Spawn button для ручного спавна NPC
+    spawn_button: Option<Gd<godot::classes::Button>>,
 }
 
 #[godot_api]
@@ -59,13 +62,14 @@ impl INode3D for SimulationBridge {
             base,
             simulation: None,
             fps_label: None,
+            spawn_button: None,
         }
     }
 
     fn ready(&mut self) {
         GodotLogger::clear_log_file();
         voidrun_simulation::set_logger(Box::new(GodotLogger));
-        voidrun_simulation::set_log_level(LogLevel::Error);
+        voidrun_simulation::set_log_level(LogLevel::Debug);
         voidrun_simulation::log("SimulationBridge ready - building 3D scene in Rust");
 
         // 1. Создаём navigation region + ground
@@ -105,6 +109,7 @@ impl INode3D for SimulationBridge {
         // 4.3 Регистрируем visual sync systems (_main_thread = Godot API)
         use crate::systems::{
             ai_melee_combat_decision_main_thread, // Unified AI melee combat decision system (attack/parry/wait)
+            apply_gravity_to_all_actors, // Gravity + jump для ВСЕХ акторов (ПЕРВАЯ система!)
             apply_navigation_velocity_main_thread,
             apply_retreat_velocity_main_thread,
             apply_safe_velocity_system, // NavigationAgent3D avoidance
@@ -135,6 +140,8 @@ impl INode3D for SimulationBridge {
 
         // 3. Регистрируем Godot tactical layer events
         app.add_event::<crate::events::SafeVelocityComputed>();
+        app.add_event::<voidrun_simulation::JumpIntent>();
+        app.add_event::<crate::input::PlayerInputEvent>(); // Player input events
 
         // 4. Sync (Changed<T> → обновление визуалов) + Vision polling + Weapon systems + Movement
         // ВАЖНО: Разделяем на две цепочки (tuple size limit = 16)
@@ -152,8 +159,9 @@ impl INode3D for SimulationBridge {
         app.add_systems(
             bevy::prelude::Update,
             (
-                apply_navigation_velocity_main_thread, // nav_agent.set_velocity(desired) → velocity_computed signal
-                apply_safe_velocity_system, // SafeVelocityComputed event → CharacterBody3D (AFTER nav velocity)
+                apply_gravity_to_all_actors,            // 1. Gravity + jump для ВСЕХ акторов (ПЕРВАЯ!)
+                apply_navigation_velocity_main_thread,  // 2. nav_agent.set_velocity(desired) → velocity_computed signal
+                apply_safe_velocity_system,             // 3. SafeVelocityComputed event → CharacterBody3D (AFTER nav velocity)
             )
                 .chain(),
         );
@@ -162,6 +170,8 @@ impl INode3D for SimulationBridge {
         app.add_systems(
             bevy::prelude::Update,
             (
+                crate::input::process_player_input,       // Player input → MovementCommand + JumpIntent
+                crate::input::player_combat_input,        // Player input → MeleeAttackIntent
                 process_movement_commands_main_thread,    // MovementCommand → NavigationAgent3D
                 update_follow_entity_targets_main_thread, // Update FollowEntity targets every frame
                 apply_retreat_velocity_main_thread,       // RetreatFrom → backpedal + face target
@@ -170,6 +180,13 @@ impl INode3D for SimulationBridge {
                 sync_ai_state_labels_main_thread,
                 disable_collision_on_death_main_thread, // Отключение collision + gray + DespawnAfter
                 despawn_actor_visuals_main_thread, // Удаление Godot nodes для despawned entities
+                weapon_aim_main_thread,            // Aim RightHand at target
+            ),
+        );
+
+        app.add_systems(
+            bevy::prelude::Update,
+            (
                 weapon_aim_main_thread,            // Aim RightHand at target
                 process_ranged_attack_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
                 weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
@@ -194,15 +211,9 @@ impl INode3D for SimulationBridge {
                 .chain(),
         );
 
-        // 5. Создаём маркер для отложенного спавна NPC (через 5 секунд)
-        app.world_mut().spawn(SpawnNPCsAfter { spawn_time: 5.0 });
-
-        // Регистрируем систему отложенного спавна
-        app.add_systems(bevy::prelude::Update, delayed_npc_spawn_system);
-
         self.simulation = Some(app);
 
-        voidrun_simulation::log("Scene ready: NPCs will spawn after 5 sec (delayed spawn)");
+        voidrun_simulation::log("Scene ready: Press 'Spawn NPCs' button to spawn test NPCs");
     }
 
     fn process(&mut self, delta: f64) {
@@ -218,7 +229,7 @@ impl INode3D for SimulationBridge {
                 if let Some(mut label) = self.fps_label.as_mut() {
                     label.set_text(&format!("FPS: {:.0}", fps));
                 }
-                voidrun_simulation::log_error(&format!("FPS: {:.0}", fps));
+                // voidrun_simulation::log_error(&format!("FPS: {:.0}", fps));
                 FPS_TIMER = 0.0;
                 FRAME_COUNT = 0;
             }
@@ -276,6 +287,86 @@ impl INode3D for SimulationBridge {
 
 #[godot_api]
 impl SimulationBridge {
+    /// Spawn NPCs button callback (вызывается при нажатии кнопки)
+    #[func]
+    pub fn spawn_npcs(&mut self) {
+        voidrun_simulation::log("🎮 Spawn button pressed - spawning test NPCs");
+
+        let Some(app) = &mut self.simulation else {
+            voidrun_simulation::log_error("❌ Simulation not initialized!");
+            return;
+        };
+
+        // Спавним NPC через Commands
+        let mut world = app.world_mut();
+        let mut commands = world.commands();
+
+        // Спавним тестовых NPC (те же что были в delayed_npc_spawn_system)
+        // spawn_test_npc(&mut commands, (10.0, 0.5, 5.0), 1, 100); // Faction 1
+        // spawn_test_npc(&mut commands, (6.0, 0.5, 5.0), 1, 100);
+        // spawn_test_npc(&mut commands, (5.0, 0.5, 6.0), 1, 100);
+        // spawn_test_npc(&mut commands, (6.0, 0.5, 6.0), 1, 100);
+
+        spawn_melee_npc(&mut commands, (26.0, 0.0, 5.0), 1, 300);
+        spawn_melee_npc(&mut commands, (25.0, 0.0, 6.0), 1, 300);
+        spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 300);
+
+        // spawn_test_npc(&mut commands, (-5.0, 0.0, 7.0), 2, 100); // Faction 2
+        // spawn_test_npc(&mut commands, (-5.0, 0.0, -6.0), 2, 100);
+        // spawn_test_npc(&mut commands, (-6.0, 0.0, -5.0), 2, 100);
+        // spawn_test_npc(&mut commands, (-6.0, 0.0, -6.0), 2, 100);
+
+        spawn_melee_npc(&mut commands, (-25.0, 0.0, -6.0), 2, 300);
+        spawn_melee_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 300);
+        spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 300);
+
+        // spawn_test_npc(&mut commands, (-0.0, 0.0, 7.0), 3, 100); // Faction 3
+        // spawn_test_npc(&mut commands, (-1.0, 0.0, -6.0), 3, 100);
+        // spawn_test_npc(&mut commands, (-2.0, 0.0, -5.0), 3, 100);
+        // spawn_test_npc(&mut commands, (-0.0, 0.0, -6.0), 3, 100);
+
+        spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 300);
+        spawn_melee_npc(&mut commands, (2.0, 0.0, -5.0), 3, 300);
+        spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 300);
+
+        voidrun_simulation::log("✅ NPCs spawned successfully (21 NPCs, 3 factions)");
+    }
+
+    /// Spawn player button callback (вызывается при нажатии кнопки)
+    #[func]
+    pub fn spawn_player(&mut self) {
+        voidrun_simulation::log("🎮 Spawn Player button pressed");
+
+        let Some(app) = &mut self.simulation else {
+            voidrun_simulation::log_error("❌ Simulation not initialized!");
+            return;
+        };
+
+        // Spawn player entity через helper
+        let player_entity = {
+            let mut world = app.world_mut();
+            let mut commands = world.commands();
+            crate::player::spawn_player(&mut commands, bevy::prelude::Vec3::new(0.0, 2.0, 0.0))
+        };
+
+        // Создаём PlayerInputController node и setup simulation_bridge_path
+        let mut controller = godot::prelude::Gd::<crate::input::PlayerInputController>::from_init_fn(
+            |base| crate::input::PlayerInputController::init(base),
+        );
+
+        // Set simulation_bridge_path (абсолютный путь к SimulationBridge)
+        let bridge_path = self.base().get_path();
+        controller.bind_mut().simulation_bridge_path = bridge_path.into();
+
+        // Добавляем PlayerInputController как child node SimulationBridge
+        self.base_mut().add_child(&controller.upcast::<Node>());
+
+        voidrun_simulation::log(&format!(
+            "✅ Player spawned successfully (entity: {:?})",
+            player_entity
+        ));
+    }
+
     /// Записать SafeVelocityComputed event в ECS (вызывается из AvoidanceReceiver)
     ///
     /// Flow:
@@ -299,6 +390,20 @@ impl SimulationBridge {
                 safe_velocity,
                 desired_velocity,
             });
+    }
+
+    /// Emit PlayerInputEvent в ECS (вызывается из PlayerInputController)
+    ///
+    /// Flow:
+    /// 1. PlayerInputController читает Godot Input (WASD, Space, LMB, RMB)
+    /// 2. Вызывает этот метод каждый frame
+    /// 3. Player input systems (process_player_input, player_combat_input) обрабатывают event
+    pub fn emit_player_input_event(&mut self, input_event: crate::input::PlayerInputEvent) {
+        let Some(app) = &mut self.simulation else {
+            return;
+        };
+
+        app.world_mut().send_event(input_event);
     }
 
     /// Создать NavigationRegion3D + NavMesh (baking из SceneTree children)
@@ -401,7 +506,7 @@ impl SimulationBridge {
         voidrun_simulation::log("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
     }
 
-    /// Создать FPS counter label (top-right corner)
+    /// Создать FPS counter label + Spawn button (top-left corner)
     fn create_fps_label(&mut self) {
         // CanvasLayer для UI overlay (рендерится поверх 3D сцены)
         let mut canvas_layer = CanvasLayer::new_alloc();
@@ -410,7 +515,7 @@ impl SimulationBridge {
         let mut label = Label::new_alloc();
         label.set_text("FPS: --");
 
-        // Позиция: top-right corner
+        // Позиция: top-left corner
         label.set_position(Vector2::new(10.0, 10.0));
 
         // Стиль: белый текст, крупный шрифт
@@ -420,13 +525,40 @@ impl SimulationBridge {
         // Добавляем label в canvas layer
         canvas_layer.add_child(&label.clone().upcast::<Node>());
 
+        // Button для спавна NPC (под FPS label)
+        let mut button = godot::classes::Button::new_alloc();
+        button.set_text("Spawn NPCs");
+        button.set_position(Vector2::new(10.0, 50.0)); // Под FPS label
+        button.set_size(Vector2::new(150.0, 40.0));
+
+        // Подключаем signal pressed → метод spawn_npcs()
+        let callable = self.base().callable("spawn_npcs");
+        button.connect("pressed", &callable);
+
+        // Добавляем button в canvas layer
+        canvas_layer.add_child(&button.clone().upcast::<Node>());
+
+        // Button для спавна Player (под Spawn NPCs button)
+        let mut player_button = godot::classes::Button::new_alloc();
+        player_button.set_text("Spawn Player");
+        player_button.set_position(Vector2::new(10.0, 100.0)); // Под Spawn NPCs button
+        player_button.set_size(Vector2::new(150.0, 40.0));
+
+        // Подключаем signal pressed → метод spawn_player()
+        let player_callable = self.base().callable("spawn_player");
+        player_button.connect("pressed", &player_callable);
+
+        // Добавляем player button в canvas layer
+        canvas_layer.add_child(&player_button.upcast::<Node>());
+
         // Добавляем canvas layer в сцену
         self.base_mut().add_child(&canvas_layer.upcast::<Node>());
 
-        // Сохраняем reference для обновления в process()
+        // Сохраняем references
         self.fps_label = Some(label);
+        self.spawn_button = Some(button);
 
-        voidrun_simulation::log("FPS counter UI created (top-left corner)");
+        voidrun_simulation::log("FPS counter + Spawn buttons UI created (top-left corner)");
     }
 
     // ❌ REMOVED: create_npc_visual() — теперь используем spawn_actor_visuals_main_thread() ECS систему
@@ -540,69 +672,8 @@ impl SimulationBridge {
     // - sync_transforms_main_thread
 }
 
-/// Компонент-маркер: отложенный спавн NPC
-#[derive(bevy::prelude::Component, Debug)]
-struct SpawnNPCsAfter {
-    spawn_time: f32, // Через сколько секунд спавнить
-}
-
-/// Система: отложенный спавн NPC
-///
-/// Ждёт указанное время и спавнит всех тестовых NPC.
-fn delayed_npc_spawn_system(
-    mut commands: bevy::prelude::Commands,
-    query: bevy::prelude::Query<(bevy::prelude::Entity, &SpawnNPCsAfter)>,
-    time: bevy::prelude::Res<bevy::prelude::Time>,
-) {
-    let elapsed = time.elapsed_secs();
-
-    for (entity, spawn_marker) in query.iter() {
-        if elapsed >= spawn_marker.spawn_time {
-            voidrun_simulation::log("⏰ Spawning NPCs (delayed spawn triggered)");
-
-            // Спавним 2 NPC с мечами для melee combat теста
-            spawn_test_npc(&mut commands, (10.0, 0.5, 5.0), 1, 100); // Faction 1
-            spawn_test_npc(&mut commands, (6.0, 0.5, 5.0), 1, 100); // Faction 1
-            spawn_test_npc(&mut commands, (5.0, 0.5, 6.0), 1, 100); // Faction 1
-            spawn_test_npc(&mut commands, (6.0, 0.5, 6.0), 1, 100); // Faction 1
-            
-            spawn_test_npc(&mut commands, (26.0, 0.5, 5.0), 1, 100); // Faction 1
-            spawn_test_npc(&mut commands, (25.0, 0.5, 6.0), 1, 100); // Faction 1
-            spawn_test_npc(&mut commands, (21.0, 0.5, 6.0), 1, 100); // Faction 1
-
-            spawn_test_npc(&mut commands, (-5.0, 0.5, 7.0), 2, 100); // Faction 2
-            spawn_test_npc(&mut commands, (-5.0, 0.5, -6.0), 2, 100); // Faction 2
-            spawn_test_npc(&mut commands, (-6.0, 0.5, -5.0), 2, 100); // Faction 3
-            spawn_test_npc(&mut commands, (-6.0, 0.5, -6.0), 2, 100); // Faction 3
-
-            
-            spawn_test_npc(&mut commands, (-25.0, 0.5, -6.0), 2, 100); // Faction 2
-            spawn_test_npc(&mut commands, (-26.0, 0.5, -5.0), 2, 100); // Faction 3
-            spawn_test_npc(&mut commands, (-16.0, 0.5, -6.0), 2, 100); // Faction 3
-
-            
-
-            spawn_test_npc(&mut commands, (-0.0, 0.5, 7.0), 3, 100); // Faction 2
-            spawn_test_npc(&mut commands, (-1.0, 0.5, -6.0), 3, 100); // Faction 2
-            spawn_test_npc(&mut commands, (-2.0, 0.5, -5.0), 3, 100); // Faction 3
-            spawn_test_npc(&mut commands, (-0.0, 0.5, -6.0), 3, 100); // Faction 3
-
-            
-            spawn_test_npc(&mut commands, (3.0, 0.5, -6.0), 3, 100); // Faction 2
-            spawn_test_npc(&mut commands, (2.0, 0.5, -5.0), 3, 100); // Faction 3
-            spawn_test_npc(&mut commands, (1.0, 0.5, -6.0), 3, 100); // Faction 3
-                                                                    //    spawn_test_npc(&mut commands, (3.0, 0.5, 0.0), 1, 100, 10);   // Faction 4
-                                                                    //    spawn_test_npc(&mut commands, (-5.0, 0.5, 8.0), 2, 100, 10);   // Faction 5
-                                                                    //    spawn_test_npc(&mut commands, (9.0, 0.5, -10.0), 3, 100, 10);   // Faction 6
-                                                                       // Удаляем маркер (spawn уже выполнен)
-            commands.entity(entity).despawn();
-
-            voidrun_simulation::log(
-                "✅ NPCs spawned successfully (melee test: 2 NPCs with swords)",
-            );
-        }
-    }
-}
+// ❌ УДАЛЕНО: SpawnNPCsAfter + delayed_npc_spawn_system
+// Теперь используется кнопка "Spawn NPCs" → SimulationBridge::spawn_npcs()
 
 /// Спавн melee NPC с мечом (для melee combat тестов)
 fn spawn_melee_npc(

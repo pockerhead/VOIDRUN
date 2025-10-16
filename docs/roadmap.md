@@ -1,7 +1,7 @@
 # VOIDRUN Development Roadmap
 
-**Версия:** 1.1
-**Обновлено:** 2025-01-13
+**Версия:** 1.2
+**Обновлено:** 2025-10-15
 **Стратегия:** Headless-first (70%) + Debug визуал (30%)
 
 **Текущий фокус:** Melee Combat System + Shield Implementation
@@ -98,8 +98,8 @@
 ## ✅ Фаза 1.5: Combat Mechanics (ЗАВЕРШЕНО)
 
 **Срок:** 3-5 дней
-**Статус:** ✅ Melee combat system fully implemented
-**Обновлено:** 2025-10-14
+**Статус:** ✅ Melee combat system + Parry system fully implemented
+**Обновлено:** 2025-10-15
 
 **📋 Детальный план:** [Melee Combat Implementation](implementation/melee-combat-system.md)
 
@@ -127,9 +127,36 @@
 - ✅ Тактическое отступление (`RetreatFrom` — backpedal + face target)
 - ✅ Возврат в бой после Retreat (сохраняет `from_target`, не теряет врага)
 
+**✅ Parry System РАБОТАЕТ (Фаза 2.2):**
+- ✅ `ParryState` компонент (Windup → Recovery фазы)
+- ✅ `StaggerState` компонент (ошеломление после успешного парирования)
+- ✅ Critical timing check: парирование успешно если defender.Windup заканчивается когда attacker в `ActiveParryWindow`
+- ✅ Attack phases расширены: `ActiveParryWindow` (hitbox OFF, можно парировать) + `ActiveHitbox` (hitbox ON, урон)
+- ✅ AI парирует атаки с реакцией (`ParryDelayTimer` для realistic timing)
+- ✅ `execute_parry_animations_main_thread` (melee_parry/melee_parry_recover)
+- ✅ `execute_stagger_animations_main_thread` (RESET on stagger)
+
+**✅ AI Decision Making:**
+- ✅ `ai_melee_combat_decision_main_thread` (unified attack/parry/wait decisions)
+- ✅ SlowUpdate schedule (0.3 Hz для AI систем с "временем реакции")
+- ✅ Dynamic target switching (AI атакует ближайшего ВИДИМОГО врага с LOS check)
+- ✅ `update_combat_targets_main_thread` (SlowUpdate) - LOS raycast для видимости
+
+**✅ Performance Optimization:**
+- ✅ poll_vision_cones: 60 Hz → 3 Hz (20x оптимизация)
+- ✅ update_combat_targets: 60 Hz → 3 Hz (20x оптимизация LOS raycasts)
+- ✅ **Результат: 21 NPC в бою @ 118-153 FPS** (стабильно)
+
+**✅ Navigation & Movement:**
+- ✅ NavigationAgent-based movement (LOS clearing, avoidance)
+- ✅ `collision_layers.rs` (COLLISION_MASK_RAYCAST_LOS)
+- ✅ `los_helpers.rs` (raycast utilities)
+- ✅ `avoidance_receiver.rs` (NavigationAgent3D velocity_computed signal)
+
 **📋 Что НЕ НАЧАТО:**
 - ⏸️ Player control (можем отложить)
 - ⏸️ Shield system (design doc готов, code нет)
+- ⏸️ Block/Dodge systems (парирование работает, блок/уклонение отложены)
 - ⏸️ Chunk system (можем отложить)
 
 ### Архитектурные решения (2025-01-10):
@@ -163,6 +190,24 @@
 - [x] Правильная дистанция для melee/ranged (без буфера для melee)
 - [x] Возврат в бой после Retreat (сохранение `from_target` в SpottedEnemies)
 
+**✅ ЗАВЕРШЕНО: Parry System (Фаза 2.2, 2025-10-15):**
+- [x] `ParryState` component (Windup → Recovery phases)
+- [x] `StaggerState` component (ошеломление 0.5s после успешного парирования)
+- [x] `ParryDelayTimer` component (AI reaction timing)
+- [x] `ParryIntent` / `ParrySuccess` events
+- [x] Attack phases расширены: `ActiveParryWindow` + `ActiveHitbox`
+- [x] ECS systems: `start_parry`, `update_parry_states`, `update_stagger_states`, `process_parry_delay_timers`
+- [x] Godot systems: `execute_parry_animations_main_thread`, `execute_stagger_animations_main_thread`
+- [x] Critical timing check (defender.Windup ends когда attacker в ActiveParryWindow)
+- [x] AI парирует атаки (`ai_melee_combat_decision_main_thread`)
+
+**✅ ЗАВЕРШЕНО: Performance & AI Improvements (2025-10-15):**
+- [x] SlowUpdate schedule (0.3 Hz для AI decision making)
+- [x] Dynamic target switching (`update_combat_targets_main_thread`)
+- [x] NavigationAgent-based movement (LOS clearing)
+- [x] Collision layers система (`collision_layers.rs`, `los_helpers.rs`)
+- [x] Performance: 21 NPC @ 118-153 FPS (poll_vision 60Hz→3Hz, target_switch 60Hz→3Hz)
+
 **🎯 Shield System Implementation (2-3 дня):**
 - [ ] `Shield` component (energy, threshold, regen_rate)
 - [ ] Shield vs Damage system (ranged разряжает, melee игнорирует)
@@ -175,7 +220,8 @@
 - [ ] Player control (WASD, mouse attack)
 - [ ] First-person camera (basic mode)
 - [ ] Player HUD (health/stamina UI)
-- [ ] Melee combat polish (parry, block, dodge)
+- [ ] Block system (блокирование с stamina drain, 70% damage reduction)
+- [ ] Dodge system (i-frames, dash movement)
 - [ ] Chunk system + procgen
 - [ ] VATS system (design doc готов, implementation позже)
 - [ ] Dialogue camera (cinematic shots)

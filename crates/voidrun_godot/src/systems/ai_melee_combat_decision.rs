@@ -35,7 +35,7 @@ use voidrun_simulation::combat::{
     AttackPhase, MeleeAttackIntent, MeleeAttackState, MeleeAttackType, ParryDelayTimer,
     ParryState, StaggerState, WeaponStats,
 };
-use voidrun_simulation::components::Stamina;
+use voidrun_simulation::components::{Stamina, Player};
 use voidrun_simulation::Actor;
 
 use crate::systems::VisualRegistry;
@@ -168,7 +168,7 @@ struct ActionOption {
 /// - **Can start new attack after AttackRecovery** (cooldown permitting)
 pub fn ai_melee_combat_decision_main_thread(
     mut telegraph_events: EventReader<CombatAIEvent>,
-    ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina, &Actor), Without<StaggerState>>,
+    ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina, &Actor), (Without<StaggerState>, Without<Player>)>,
     actor_query: Query<&Actor>,
     attacks: Query<&MeleeAttackState>,
     parries: Query<&ParryState>,

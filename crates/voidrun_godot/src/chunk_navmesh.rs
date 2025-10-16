@@ -213,6 +213,14 @@ pub fn create_test_navigation_region_with_obstacles(
     let mut ground_body = StaticBody3D::new_alloc();
     ground_body.set_name("Ground");
 
+    // Collision layers: Environment (layer 3)
+    // Ground коллидирует с actors (layer 2) и projectiles (layer 4)
+    ground_body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ENVIRONMENT);
+    ground_body.set_collision_mask(
+        crate::collision_layers::COLLISION_LAYER_ACTORS
+            | crate::collision_layers::COLLISION_LAYER_PROJECTILES,
+    );
+
     // CollisionShape3D для земли (плоский box 400x1x400м)
     let mut ground_collision = CollisionShape3D::new_alloc();
     let mut ground_shape = BoxShape3D::new_gd();

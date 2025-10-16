@@ -24,6 +24,9 @@ pub use combat::{
 };
 pub use components::*;
 
+// Re-export events
+pub use components::movement::JumpIntent;
+
 /// Главный plugin симуляции (объединяет все подсистемы)
 pub struct SimulationPlugin;
 

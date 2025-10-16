@@ -1,9 +1,9 @@
 # Melee Combat System: Implementation Plan
 
 **Дата начала:** 2025-01-13
-**Завершено:** 2025-10-14
-**Статус:** ✅ Core System Complete
-**Фаза:** 2.1 - Melee Combat Core (COMPLETED)
+**Завершено:** 2025-10-15
+**Статус:** ✅ Core System + Parry System Complete
+**Фаза:** 2.1 (Melee Core) + 2.2 (Parry) COMPLETED
 **Roadmap:** [Фаза 1.5 - Combat Mechanics](../roadmap.md#фаза-15-combat-mechanics-завершено)
 
 ---
@@ -19,9 +19,13 @@
 **Текущий статус:**
 - ✅ Ranged combat работает (AI стреляет, projectiles летят)
 - ✅ Melee combat ПОЛНОСТЬЮ РАБОТАЕТ (Фаза 2.1 завершена)
-- ⏸️ Defensive mechanics (parry/dodge/block) отложены на потом
+- ✅ **Parry System ПОЛНОСТЬЮ РАБОТАЕТ** (Фаза 2.2 завершена)
+- ⏸️ Defensive mechanics (dodge/block) отложены на потом
 
-**Milestone цель достигнута:** 2 NPC с мечами дерутся друг с другом, наносят урон, реагируют на удары, используют тактическое отступление.
+**Milestone цели достигнуты:**
+- ✅ 2 NPC с мечами дерутся друг с другом, наносят урон, реагируют на удары, используют тактическое отступление
+- ✅ AI парирует атаки с realistic timing (critical timing check)
+- ✅ 21 NPC @ 118-153 FPS (performance optimization - 20x для AI систем)
 
 ---
 
@@ -216,6 +220,14 @@ commands.spawn((
 - ✅ Правильная дистанция остановки (melee: attack_radius БЕЗ буфера, ranged: range - 2м)
 - ✅ Возврат в бой после Retreat (сохранение `from_target` в SpottedEnemies при переходе Retreat → Combat)
 - ✅ SpottedEnemies restoration (не теряет врага если VisionCone потерял во время retreat)
+
+**AI & Performance Improvements (2025-10-15):**
+- ✅ **SlowUpdate schedule** (0.3 Hz для AI decision making) - realistic "human reaction time"
+- ✅ **ai_melee_combat_decision_main_thread** - unified attack/parry/wait decisions (заменяет раздельные системы)
+- ✅ **Dynamic target switching** (`update_combat_targets_main_thread`) - AI атакует ближайшего ВИДИМОГО врага с LOS check
+- ✅ **NavigationAgent-based movement** (LOS clearing, avoidance) - `collision_layers.rs`, `los_helpers.rs`, `avoidance_receiver.rs`
+- ✅ **Performance boost:** poll_vision_cones 60Hz→3Hz (20x), update_combat_targets 60Hz→3Hz (20x)
+- ✅ **Result:** 21 NPC @ 118-153 FPS стабильно
 
 ### 2.1.1 ECS Components
 
@@ -473,13 +485,135 @@ commands.spawn((
 
 ---
 
-## Фаза 2.2: Defensive Mechanics
+## Фаза 2.2: Parry System
+
+**Срок:** 1-2 дня (факт: 1 день)
+**Статус:** ✅ Completed (2025-10-15)
+**Цель:** Парирование работает с critical timing check
+
+### Реализованные компоненты:
+
+**ParryState:**
+```rust
+#[derive(Component, Clone, Debug, Reflect)]
+pub struct ParryState {
+    pub phase: ParryPhase,          // Windup → Recovery
+    pub phase_timer: f32,
+    pub attacker: Entity,           // Кого парируем
+}
+
+pub enum ParryPhase {
+    Windup { duration: f32 },      // 0.1s (melee_parry animation)
+    Recovery { duration: f32 },     // 0.1s (melee_parry_recover animation)
+}
+```
+
+**StaggerState:**
+```rust
+#[derive(Component, Clone, Debug, Reflect)]
+pub struct StaggerState {
+    pub timer: f32,                 // Stagger duration (0.5s)
+    pub parried_by: Entity,         // Кто парировал (для counter attack window)
+}
+```
+
+**ParryDelayTimer:**
+```rust
+#[derive(Component, Clone, Debug)]
+pub struct ParryDelayTimer {
+    pub timer: f32,                           // Delay до парирования
+    pub attacker: Entity,
+    pub expected_windup_duration: f32,
+}
+```
+
+### Реализованные события:
+
+- ✅ `ParryIntent` - AI/player хочет парировать
+- ✅ `ParrySuccess` - парирование успешно (attacker staggered)
+
+### ECS Systems:
+
+- ✅ `start_parry` - обрабатывает ParryIntent, добавляет ParryState
+- ✅ `update_parry_states` - **CRITICAL TIMING CHECK:**
+  - Когда ParryState.Windup заканчивается → проверяет attacker.phase
+  - Если attacker в `ActiveParryWindow` → PARRY SUCCESS (stagger attacker, cancel attack)
+  - Если нет → parry failed (defender в recovery vulnerable)
+- ✅ `update_stagger_states` - управление StaggerState (tick timers, remove expired)
+- ✅ `process_parry_delay_timers` - AI reaction timing (ParryDelayTimer → ParryIntent)
+
+### Godot Systems:
+
+- ✅ `execute_parry_animations_main_thread` - анимации парирования:
+  - Windup → play "melee_parry" (0.1s)
+  - Recovery → play "melee_parry_recover" (0.1s)
+- ✅ `execute_stagger_animations_main_thread` - анимация ошеломления:
+  - Added<StaggerState> → play "RESET" (temp, позже будет dedicated stagger animation)
+  - Прерывает текущую атаку
+
+### Attack Phases расширены:
+
+**Старые фазы:**
+- Windup → Active → Recovery
+
+**Новые фазы (с parry window):**
+- Windup → **ActiveParryWindow** → **ActiveHitbox** → Recovery
+
+**ActiveParryWindow:**
+- Длительность: 20-30% от total swing (weapon.parry_window)
+- Hitbox: **DISABLED**
+- Defender может парировать
+- Если defender.ParryState.Windup заканчивается сейчас → PARRY SUCCESS
+
+**ActiveHitbox:**
+- Длительность: 30-100% от total swing (weapon.attack_duration - weapon.parry_window)
+- Hitbox: **ENABLED**
+- Наносит урон
+- Парировать нельзя
+
+### AI Decision Making:
+
+- ✅ `ai_melee_combat_decision_main_thread` - unified система:
+  - Обрабатывает `CombatAIEvent::EnemyAttackTelegraphed`
+  - Решает: attack / parry / wait
+  - Если парирует → добавляет ParryDelayTimer (realistic reaction time)
+
+### Механика парирования:
+
+**Условия успеха:**
+1. Defender должен иметь активный ParryState
+2. Defender.ParryState.phase = Windup
+3. Defender.phase_timer достигает 0 (Windup заканчивается)
+4. **В ТОТ ЖЕ МОМЕНТ** attacker.MeleeAttackState.phase = ActiveParryWindow
+
+**Результат успешного парирования:**
+- Attacker получает StaggerState (0.5s stun)
+- Attacker.MeleeAttackState удаляется (атака отменена)
+- Defender transitions в ParryPhase::Recovery
+- Counter attack window для defender (TODO)
+
+**Результат неудачного парирования:**
+- Defender просто transitions в ParryPhase::Recovery (vulnerable)
+- Attacker продолжает атаку нормально
+
+### Критерии успеха:
+- ✅ AI видит EnemyAttackTelegraphed event
+- ✅ AI принимает решение парировать (добавляет ParryDelayTimer)
+- ✅ ParryDelayTimer → ParryIntent → ParryState
+- ✅ Critical timing check работает (defender.Windup ends when attacker in ActiveParryWindow)
+- ✅ Успешное парирование → attacker staggered, attack cancelled
+- ✅ Неудачное парирование → defender vulnerable в recovery
+- ✅ Анимации работают (melee_parry, melee_parry_recover, RESET on stagger)
+
+---
+
+## Фаза 2.3: Block/Dodge Systems
 
 **Срок:** 2-3 дня
-**Статус:** ⏸️ Planned
-**Цель:** Блок, парирование, уклонение работают
+**Статус:** ⏸️ Postponed
+**Цель:** Блок и уклонение работают
 
-### 2.2.1 Block System
+### 2.3.1 Block System
 
 **Компонент:**
 
@@ -648,11 +782,11 @@ if target_has_dodge_state && target_is_dodging && iframe_timer > 0 {
 
 ---
 
-## Фаза 2.3: AI Melee Combat
+## Фаза 2.4: AI Melee Combat (Advanced)
 
 **Срок:** 2-3 дня
-**Статус:** ⏸️ Planned
-**Цель:** AI разумно принимает решения (parry/dodge/block/counterattack)
+**Статус:** ⏸️ Postponed (базовый AI работает)
+**Цель:** AI advanced decisions (dodge/block/counterattack)
 
 ### 2.3.1 AI FSM Extension
 
@@ -770,10 +904,10 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 
 ---
 
-## Фаза 2.4: Polish & Balance
+## Фаза 2.5: Polish & Balance
 
 **Срок:** 1-2 дня
-**Статус:** ⏸️ Planned
+**Статус:** ⏸️ Postponed
 **Цель:** Боевая система чувствуется хорошо
 
 ### 2.4.1 Animations
@@ -930,10 +1064,11 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 ### Current Phase
 
 - [x] **Фаза 2.0:** Weapon Architecture Refactoring (✅ 2025-01-13)
-- [ ] **Фаза 2.1:** Melee Combat Core
-- [ ] **Фаза 2.2:** Defensive Mechanics
-- [ ] **Фаза 2.3:** AI Melee Combat
-- [ ] **Фаза 2.4:** Polish & Balance
+- [x] **Фаза 2.1:** Melee Combat Core (✅ 2025-10-14)
+- [x] **Фаза 2.2:** Parry System (✅ 2025-10-15)
+- [ ] **Фаза 2.3:** Block/Dodge Systems (⏸️ Postponed)
+- [ ] **Фаза 2.4:** AI Melee Combat Advanced (⏸️ Postponed)
+- [ ] **Фаза 2.5:** Polish & Balance (⏸️ Postponed)
 
 ### Blocked Issues
 
@@ -943,6 +1078,8 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 
 - ✅ **Фаза 1:** Архитектурные решения (2025-01-13)
 - ✅ **Фаза 2.0:** Weapon Architecture Refactoring (2025-01-13)
+- ✅ **Фаза 2.1:** Melee Combat Core (2025-10-14)
+- ✅ **Фаза 2.2:** Parry System (2025-10-15)
 
 ---
 
@@ -968,6 +1105,22 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 
 ## Changelog
 
+**2025-10-15:**
+- ✅ Завершена Фаза 2.2 (Parry System):
+  - **Компоненты:** ParryState (Windup → Recovery), StaggerState (0.5s stun), ParryDelayTimer
+  - **События:** ParryIntent, ParrySuccess
+  - **ECS Systems:** start_parry, update_parry_states (critical timing check), update_stagger_states, process_parry_delay_timers
+  - **Godot Systems:** execute_parry_animations_main_thread, execute_stagger_animations_main_thread
+  - **Attack phases расширены:** ActiveParryWindow (hitbox OFF) + ActiveHitbox (hitbox ON)
+  - **Механика:** defender.Windup ends когда attacker в ActiveParryWindow → PARRY SUCCESS (stagger + cancel attack)
+  - **AI:** ai_melee_combat_decision_main_thread (unified attack/parry/wait decisions)
+- ✅ Performance & AI Improvements:
+  - SlowUpdate schedule (0.3 Hz для AI decision making)
+  - Dynamic target switching (update_combat_targets_main_thread с LOS check)
+  - NavigationAgent-based movement (collision_layers, los_helpers, avoidance_receiver)
+  - **Performance:** poll_vision 60Hz→3Hz (20x), target_switch 60Hz→3Hz (20x)
+  - **Result:** 21 NPC @ 118-153 FPS стабильно
+
 **2025-10-14:**
 - ✅ Завершена Фаза 2.1 (Melee Combat Core):
   - Реализован полный event flow: Intent → Started → AttackState → Hit → Damage
@@ -989,4 +1142,4 @@ for (entity, ai_state, stamina) in actors.iter_mut() {
 
 ---
 
-**Следующий шаг:** Shield System Implementation или Player Control (на выбор).
+**Следующий шаг:** Shield System Implementation, Block/Dodge systems или Player Control (на выбор).
