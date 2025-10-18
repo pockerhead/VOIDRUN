@@ -21,12 +21,12 @@ use crate::systems::visual_registry::VisualRegistry;
 /// NAMING: `_main_thread` суффикс = Godot API calls (NonSend resources)
 /// ADR-005: Spawn на StrategicPosition + PostSpawn коррекция
 pub fn spawn_actor_visuals_main_thread(
-    query: Query<(Entity, &Actor, &Health, &Stamina, &AIState, &voidrun_simulation::StrategicPosition, &voidrun_simulation::PrefabPath), Added<Actor>>,
+    query: Query<(Entity, &Actor, &Health, &Stamina, &voidrun_simulation::StrategicPosition, &voidrun_simulation::PrefabPath), Added<Actor>>,
     mut visuals: NonSendMut<VisualRegistry>,
     scene_root: NonSend<crate::systems::SceneRoot>,
     mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
-    for (entity, actor, health, stamina, ai_state, strategic_pos, prefab_path) in query.iter() {
+    for (entity, actor, health, stamina, strategic_pos, prefab_path) in query.iter() {
         // Загружаем TSCN prefab из PrefabPath компонента
         let mut loader = ResourceLoader::singleton();
         let scene = loader.load_ex(&prefab_path.path).done();
@@ -68,7 +68,7 @@ pub fn spawn_actor_visuals_main_thread(
 
         // AI state label (над головой, выше health)
         let mut ai_label = Label3D::new_alloc();
-        let ai_text = format!("[{:?}]", ai_state);
+        let ai_text = format!("AI");
         ai_label.set_text(ai_text.as_str());
         ai_label.set_pixel_size(0.004);
         ai_label.set_billboard_mode(BillboardMode::ENABLED);

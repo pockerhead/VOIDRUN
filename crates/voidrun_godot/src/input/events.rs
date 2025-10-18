@@ -23,10 +23,18 @@ use bevy::prelude::{Event, Vec2};
 #[derive(Event, Debug, Clone, Copy, Default)]
 pub struct PlayerInputEvent {
     /// WASD movement direction (normalized)
-    /// - (0, 1) = forward
-    /// - (0, -1) = backward
-    /// - (-1, 0) = left
-    /// - (1, 0) = right
+    ///
+    /// # Coordinate System
+    /// Logical direction independent of Godot conventions:
+    /// - `x`: -1.0 (left) → +1.0 (right)
+    /// - `y`: -1.0 (forward, maps to Godot -Z) → +1.0 (backward, maps to Godot +Z)
+    ///
+    /// # Examples
+    /// - W key: `Vec2(0, -1)` → forward (Godot -Z)
+    /// - S key: `Vec2(0, 1)` → backward (Godot +Z)
+    /// - A key: `Vec2(-1, 0)` → left (Godot -X)
+    /// - D key: `Vec2(1, 0)` → right (Godot +X)
+    /// - W+D diagonal: `Vec2(0.707, -0.707)` (normalized)
     pub move_direction: Vec2,
 
     /// Sprint key (Shift) - пока unlimited (stamina не тратится)

@@ -33,8 +33,8 @@ pub struct SimulationPlugin;
 impl Plugin for SimulationPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Fixed timestep 64Hz для simulation tick
-            .insert_resource(Time::<Fixed>::from_hz(64.0))
+            // Fixed timestep 60Hz для simulation tick (легче считать интервалы)
+            .insert_resource(Time::<Fixed>::from_hz(60.0))
             // Детерминистичный RNG (seed по умолчанию)
             .insert_resource(DeterministicRng::new(42))
             // Подсистемы (ECS strategic layer)
@@ -64,7 +64,7 @@ pub fn create_headless_app(seed: u64) -> App {
     init_logger();
     app.add_plugins(MinimalPlugins)
         .insert_resource(DeterministicRng::new(seed))
-        .insert_resource(Time::<Fixed>::from_hz(64.0)); // 64Hz FixedUpdate
+        .insert_resource(Time::<Fixed>::from_hz(60.0)); // 60Hz FixedUpdate
 
     app
 }

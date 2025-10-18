@@ -2,6 +2,7 @@ use godot::prelude::*;
 
 mod simulation_bridge;
 mod camera;
+mod schedules;
 mod systems;
 mod projectile;
 mod chunk_navmesh;

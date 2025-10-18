@@ -60,10 +60,10 @@ impl INode for PlayerInputController {
         let mut move_direction = Vector2::ZERO;
 
         if input.is_physical_key_pressed(Key::W) {
-            move_direction.y += 1.0; // Forward
+            move_direction.y -= 1.0; // Forward (Godot -Z convention)
         }
         if input.is_physical_key_pressed(Key::S) {
-            move_direction.y -= 1.0; // Backward
+            move_direction.y += 1.0; // Backward (Godot +Z convention)
         }
         if input.is_physical_key_pressed(Key::A) {
             move_direction.x -= 1.0; // Left
