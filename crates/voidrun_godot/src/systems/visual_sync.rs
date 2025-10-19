@@ -43,7 +43,22 @@ pub fn spawn_actor_visuals_main_thread(
             continue;
         };
 
-        let mut actor_node = instance.cast::<Node3D>();
+        // ВАЖНО: test_player.tscn имеет root wrapper Node3D с child "Actor" (CharacterBody3D)
+        // test_actor.tscn имеет root CharacterBody3D (Actor)
+        // Определяем что instantiated: если CharacterBody3D → используем напрямую, иначе используем wrapper
+        let (mut scene_node, mut actor_node) = if let Ok(body) = instance.clone().try_cast::<godot::classes::CharacterBody3D>() {
+            // Root это CharacterBody3D (test_actor.tscn) → scene_node = actor_node
+            let actor = body.upcast::<Node3D>();
+            (actor.clone(), actor)
+        } else {
+            // Root это Node3D wrapper (test_player.tscn) → scene_node = wrapper, actor_node = child "Actor"
+            let wrapper = instance.cast::<Node3D>();
+            let Some(actor_child) = wrapper.try_get_node_as::<Node3D>("Actor") else {
+                voidrun_simulation::log(&format!("❌ Actor child not found in prefab: {}", prefab_path.path));
+                continue;
+            };
+            (wrapper, actor_child)
+        };
 
         // Спавним на стратегической позиции (StrategicPosition → world coordinates)
         let spawn_pos = strategic_pos.to_world_position(0.5); // Y=0.5 (над землёй)
@@ -96,8 +111,9 @@ pub fn spawn_actor_visuals_main_thread(
         actor_node.add_child(&stamina_label.clone().upcast::<Node>());
 
         // Добавляем в сцену через SceneRoot (СНАЧАЛА добавляем в дерево!)
+        // ВАЖНО: добавляем scene_node (может быть wrapper или actor напрямую)
         let mut root = scene_root.node.clone();
-        root.add_child(&actor_node.clone().upcast::<Node>());
+        root.add_child(&scene_node.clone().upcast::<Node>());
 
         // КРИТИЧНО: Устанавливаем collision layers явно (даже если есть в TSCN)
         // Actors (layer 2) коллидируют с Actors + Environment (layers 2,3)
@@ -248,10 +264,11 @@ pub fn disable_collision_on_death_main_thread(
         // Пробуем получить CharacterBody3D (root node в test_actor.tscn)
         if let Some(mut body) = actor_node.clone().try_cast::<CharacterBody3D>().ok() {
             // ========================================
-            // 1. ОТКЛЮЧАЕМ COLLISION (layer/mask = 0)
+            // 1. CORPSE COLLISION (только с Environment, не с Actors/Projectiles)
             // ========================================
-            body.set_collision_layer(0);
-            body.set_collision_mask(0);
+            // Труп лежит на земле (не проваливается), но не блокирует живых
+            body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_CORPSES);
+            body.set_collision_mask(crate::collision_layers::COLLISION_MASK_CORPSES);
 
             // ========================================
             // 2. ОТКЛЮЧАЕМ NAVIGATIONAGENT3D
@@ -292,7 +309,7 @@ pub fn disable_collision_on_death_main_thread(
             }
 
             voidrun_simulation::log(&format!(
-                "💀 Entity {:?} died — FULL CLEANUP: collision off, nav off, vision off, gray painted, despawn in 5 sec",
+                "💀 Entity {:?} died — FULL CLEANUP: corpse collision (Environment only), nav off, vision off, gray painted, despawn in 5 sec",
                 entity
             ));
 

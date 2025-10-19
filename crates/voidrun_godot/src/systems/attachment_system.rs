@@ -58,6 +58,21 @@ fn attach_single_prefab(
     visuals: &VisualRegistry,
     attachments: &mut AttachmentRegistry,
 ) {
+    // SPECIAL CASE: Empty prefab_path → detach existing prefab
+    if attachment.prefab_path.is_empty() {
+        let key = (entity, attachment.attachment_point.clone());
+
+        if let Some(mut attached_node) = attachments.attachments.remove(&key) {
+            voidrun_simulation::log(&format!(
+                "🔄 Detaching prefab from entity {:?} at '{}'",
+                entity,
+                attachment.attachment_point
+            ));
+            attached_node.queue_free();
+        }
+        return;
+    }
+
     // 1. Найти host node
     let Some(host_node) = visuals.visuals.get(&entity) else {
         voidrun_simulation::log_error(&format!("attach_prefab: entity {:?} not in VisualRegistry", entity));
@@ -74,7 +89,17 @@ fn attach_single_prefab(
         return;
     };
 
-    // 3. Load TSCN prefab
+    // 3. Detach old prefab if exists (перед attach нового)
+    let key = (entity, attachment.attachment_point.clone());
+    if let Some(mut old_node) = attachments.attachments.remove(&key) {
+        voidrun_simulation::log(&format!(
+            "🔄 Removing old prefab at '{}' before attach",
+            attachment.attachment_point
+        ));
+        old_node.queue_free();
+    }
+
+    // 4. Load TSCN prefab
     let prefab_scene = match load_packed_scene(&attachment.prefab_path) {
         Some(scene) => scene,
         None => {
@@ -87,13 +112,13 @@ fn attach_single_prefab(
         }
     };
 
-    // 4. Instantiate prefab
+    // 5. Instantiate prefab
     let prefab_instance = prefab_scene.instantiate_as::<Node3D>();
 
-    // 5. Attach to attachment point
+    // 6. Attach to attachment point
     attachment_point_node.add_child(&prefab_instance);
 
-    // 6. Register in AttachmentRegistry
+    // 7. Register in AttachmentRegistry
     let key = (entity, attachment.attachment_point.clone());
     attachments.attachments.insert(key, prefab_instance);
 

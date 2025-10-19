@@ -103,6 +103,10 @@ pub fn update_spotted_enemies(
 ) {
     for event in ai_events.read() {
         match event {
+            GodotAIEvent::EnemyWindupVisible { .. } => {
+                // Skip: handled by ai_melee_combat_decision system
+                continue;
+            }
             GodotAIEvent::ActorSpotted { observer, target } => {
                 // Получаем observer actor
                 let Ok((mut spotted, observer_actor)) = ai_query.get_mut(*observer) else {

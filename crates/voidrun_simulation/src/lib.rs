@@ -15,6 +15,8 @@ use rand_chacha::ChaCha8Rng;
 pub mod ai;
 pub mod combat;
 pub mod components;
+pub mod item_system;
+pub mod equipment;
 
 // Re-export базовых компонентов для удобства
 pub use ai::{AIConfig, AIPlugin, AIState};
@@ -23,6 +25,14 @@ pub use combat::{
     Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST,
 };
 pub use components::*;
+pub use item_system::{
+    ArmorStatsTemplate, ConsumableEffect, ItemDefinition, ItemDefinitions, ItemId, ItemInstance,
+    ItemType, WeaponSize, WeaponStatsTemplate,
+};
+pub use equipment::{
+    EquipWeaponIntent, UnequipWeaponIntent, SwapActiveWeaponIntent, WeaponSlot,
+    EquipArmorIntent, UnequipArmorIntent, UseConsumableIntent, EquipmentPlugin,
+};
 
 // Re-export events
 pub use components::movement::JumpIntent;
@@ -37,8 +47,10 @@ impl Plugin for SimulationPlugin {
             .insert_resource(Time::<Fixed>::from_hz(60.0))
             // Детерминистичный RNG (seed по умолчанию)
             .insert_resource(DeterministicRng::new(42))
+            // Item definitions (hardcoded базовые items)
+            .insert_resource(ItemDefinitions::default())
             // Подсистемы (ECS strategic layer)
-            .add_plugins((CombatPlugin, AIPlugin));
+            .add_plugins((CombatPlugin, AIPlugin, EquipmentPlugin));
     }
 }
 

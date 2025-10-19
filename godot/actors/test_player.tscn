@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3 uid="uid://83h5m6kldkbh"]
+
+[ext_resource type="PackedScene" uid="uid://b11myb8dfjdc6" path="res://actors/test_actor.tscn" id="1_wlawr"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_sxfff"]
+radius = 0.01
+height = 4.0
+
+[node name="Node3D" type="Node3D"]
+
+[node name="Actor" parent="." instance=ExtResource("1_wlawr")]
+
+[node name="CameraPivot" type="Node3D" parent="Actor/Head" index="2"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06686258, -0.20968199)
+
+[node name="CameraLine" type="MeshInstance3D" parent="Actor/Head/CameraPivot"]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, -2.2747152)
+mesh = SubResource("CapsuleMesh_sxfff")
+
+[editable path="Actor"]

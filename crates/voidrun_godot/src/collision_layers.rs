@@ -41,6 +41,9 @@ pub const COLLISION_LAYER_ENVIRONMENT: u32 = 0b100; // 4
 /// Layer 4: Projectiles (CharacterBody3D — bullets)
 pub const COLLISION_LAYER_PROJECTILES: u32 = 0b1000; // 8
 
+/// Layer 5: Corpses (dead actors — лежат на земле, не блокируют живых)
+pub const COLLISION_LAYER_CORPSES: u32 = 0b10000; // 16
+
 // ============================================================================
 // Mask Битовые Маски (с чем объект коллидирует)
 // ============================================================================
@@ -61,6 +64,12 @@ pub const COLLISION_MASK_PROJECTILES: u32 = COLLISION_LAYER_ACTORS | COLLISION_L
 /// Используется для line-of-sight проверок (AI, weapons).
 pub const COLLISION_MASK_RAYCAST_LOS: u32 = COLLISION_LAYER_ACTORS | COLLISION_LAYER_ENVIRONMENT;
 
+/// Mask: Corpses collide with Environment only
+///
+/// Используется для мёртвых акторов (лежат на земле, но не блокируют живых).
+/// НЕ коллидируют с: Actors (layer 2), Projectiles (layer 4), другими Corpses.
+pub const COLLISION_MASK_CORPSES: u32 = COLLISION_LAYER_ENVIRONMENT;
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -71,6 +80,7 @@ pub fn get_layer_name(layer_bits: u32) -> &'static str {
         COLLISION_LAYER_ACTORS => "Actors",
         COLLISION_LAYER_ENVIRONMENT => "Environment",
         COLLISION_LAYER_PROJECTILES => "Projectiles",
+        COLLISION_LAYER_CORPSES => "Corpses",
         _ => "Unknown",
     }
 }

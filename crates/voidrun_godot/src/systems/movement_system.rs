@@ -227,6 +227,7 @@ pub fn apply_retreat_velocity_main_thread(
     visuals: NonSend<VisualRegistry>,
     mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
+    return;
     const RETREAT_SPEED: f32 = 3.0; // Отступаем медленнее чем движемся вперёд
 
     for (entity, command) in query.iter() {

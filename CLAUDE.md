@@ -195,6 +195,9 @@ godot_error!("error message")
 - [docs/design/shield-technology.md](docs/design/shield-technology.md) — Технология щитов (почему ranged + melee сосуществуют)
 - [docs/design/camera-system-vats.md](docs/design/camera-system-vats.md) — Камерная система + VATS (first-person + tactical moments)
 
+**Implementation Docs (технические планы):**
+- [docs/implementation/lighting-sdfgi-integration.md](docs/implementation/lighting-sdfgi-integration.md) — SDFGI lighting system (ray-tracing альтернатива, план внедрения)
+
 **ADRs (Architecture Decision Records):**
 - ADR-002: Godot-Rust Integration (SimulationBridge, YAGNI)
 - ADR-003: ECS vs Godot Physics (Hybrid architecture)
@@ -225,6 +228,7 @@ crates/voidrun_godot/src/
 ├── simulation_bridge.rs    # SimulationBridge (main node)
 ├── systems/                # ECS → Godot sync (visual_sync, movement, weapon, vision)
 ├── projectile.rs           # GodotProjectile (Area3D physics)
+├── actor_utils.rs          # Actor spatial utilities (mutual facing, LOS, distance)
 └── camera/                 # RTS camera (WASD, orbit, zoom)
 ```
 
@@ -279,6 +283,25 @@ let Some(child) = parent_node.try_get_node_as::<Node3D>("ChildName") else {
 
 // Get AnimationPlayer
 let anim = node.try_get_node_as::<godot::classes::AnimationPlayer>("AnimationPlayer");
+```
+
+**Actor spatial utilities (crates/voidrun_godot/src/actor_utils.rs):**
+```rust
+use crate::actor_utils::{actors_facing_each_other, angles};
+
+// Проверка mutual facing (оба актора смотрят друг на друга)
+if let Some((dot_a, dot_b)) = actors_facing_each_other(
+    &actor_a_node,
+    &actor_b_node,
+    angles::TIGHT_35_DEG, // Константы: TIGHT_30_DEG, TIGHT_35_DEG, MODERATE_45_DEG, WIDE_60_DEG
+) {
+    // Оба актора смотрят друг на друга
+}
+
+// Use cases:
+// - Melee windup detection (angles::TIGHT_35_DEG)
+// - Dialogue interaction (angles::MODERATE_45_DEG)
+// - Stealth detection (angles::WIDE_60_DEG)
 ```
 
 ---

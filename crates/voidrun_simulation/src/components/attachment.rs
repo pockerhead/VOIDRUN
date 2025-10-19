@@ -49,11 +49,12 @@ impl Attachment {
     }
 }
 
-/// Attachment type (weapon, item, ship module, etc.)
+/// Attachment type (weapon, item, armor, ship module, etc.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum AttachmentType {
     Weapon,
     Item,
+    Armor,
 }
 
 /// Marker component: detach specific attachment

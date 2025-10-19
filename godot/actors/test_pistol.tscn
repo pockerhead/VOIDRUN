@@ -48,3 +48,6 @@ mesh = SubResource("BoxMesh_bml87")
 [node name="MeshInstance3D6" type="MeshInstance3D" parent="WeaponPlacement"]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, -1.1715693e-08, 0, 0.13401192)
 mesh = SubResource("CylinderMesh_3f0n2")
+
+[node name="SightSocket" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15291916, 0)

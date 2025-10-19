@@ -11,7 +11,7 @@ mod spawn;
 mod systems_setup;
 
 use crate::systems::{AttachmentRegistry, SceneRoot, VisualRegistry, VisionTracking};
-use godot::classes::{INode3D, Label, Node};
+use godot::classes::{INode3D, Node};
 use godot::prelude::*;
 use logger::GodotLogger;
 use spawn::spawn_melee_npc;
@@ -25,12 +25,6 @@ pub struct SimulationBridge {
 
     /// Bevy ECS App (симуляция + NonSend visual registries)
     simulation: Option<bevy::app::App>,
-
-    /// FPS label для on-screen display
-    fps_label: Option<Gd<Label>>,
-
-    /// Spawn button для ручного спавна NPC
-    spawn_button: Option<Gd<godot::classes::Button>>,
 }
 
 #[godot_api]
@@ -39,8 +33,6 @@ impl INode3D for SimulationBridge {
         Self {
             base,
             simulation: None,
-            fps_label: None,
-            spawn_button: None,
         }
     }
 
@@ -59,14 +51,8 @@ impl INode3D for SimulationBridge {
         // 3. Создаём camera
         self.create_camera();
 
-        // 3.5 Создаём FPS counter UI
-        let (fps_label, mut spawn_button) = self.create_fps_label();
-        self.fps_label = Some(fps_label);
-        self.spawn_button = Some(spawn_button.clone());
-
-        // Подключаем signal pressed → метод spawn_npcs()
-        let callable = self.base().callable("spawn_npcs");
-        spawn_button.connect("pressed", &callable);
+        // 3.5 Создаём DebugOverlay UI (FPS counter, spawn buttons)
+        self.create_debug_overlay();
 
         // 4. Инициализируем ECS симуляцию
         let mut app = create_headless_app(42);
@@ -95,23 +81,6 @@ impl INode3D for SimulationBridge {
     }
 
     fn process(&mut self, delta: f64) {
-        // FPS counter (update label)
-        static mut FPS_TIMER: f32 = 0.0;
-        static mut FRAME_COUNT: u32 = 0;
-        unsafe {
-            FPS_TIMER += delta as f32;
-            FRAME_COUNT += 1;
-
-            if FPS_TIMER >= 0.2 {
-                let fps = FRAME_COUNT as f32 / FPS_TIMER;
-                if let Some(mut label) = self.fps_label.as_mut() {
-                    label.set_text(&format!("FPS: {:.0}", fps));
-                }
-                FPS_TIMER = 0.0;
-                FRAME_COUNT = 0;
-            }
-        }
-
         // Обновляем симуляцию
         if let Some(app) = &mut self.simulation {
             // Передаём delta time в Bevy (для movement system)
@@ -119,33 +88,6 @@ impl INode3D for SimulationBridge {
                 .insert_resource(crate::systems::GodotDeltaTime(delta as f32));
 
             app.update(); // ECS systems выполнятся, включая attach/detach_prefabs_main_thread
-        }
-
-        // Debug: показываем AI states (раз в секунду)
-        if let Some(app) = &mut self.simulation {
-            static mut DEBUG_TIMER: f32 = 0.0;
-            unsafe {
-                DEBUG_TIMER += delta as f32;
-                if DEBUG_TIMER >= 1.0 {
-                    DEBUG_TIMER = 0.0;
-
-                    let world = app.world_mut();
-                    let mut query = world.query::<(
-                        bevy::prelude::Entity,
-                        &voidrun_simulation::ai::AIState,
-                        &voidrun_simulation::Actor,
-                        &voidrun_simulation::Health,
-                        &voidrun_simulation::Stamina,
-                    )>();
-
-                    for (entity, state, actor, health, stamina) in query.iter(world) {
-                        voidrun_simulation::log(&format!(
-                            "DEBUG: Entity {:?} (faction {}) HP:{}/{} Stamina:{:.0}/{:.0} state = {:?}",
-                            entity, actor.faction_id, health.current, health.max, stamina.current, stamina.max, state
-                        ));
-                    }
-                }
-            }
         }
 
         // Обрабатываем hit effects (DamageDealt события)
@@ -169,17 +111,17 @@ impl SimulationBridge {
         let world = app.world_mut();
         let mut commands = world.commands();
 
-        spawn_melee_npc(&mut commands, (26.0, 0.0, 5.0), 1, 300);
-        spawn_melee_npc(&mut commands, (25.0, 0.0, 6.0), 1, 300);
-        spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 300);
+        spawn_melee_npc(&mut commands, (0.0, 0.0, 3.0), 1, 60);
+        spawn_melee_npc(&mut commands, (25.0, 0.0, 6.0), 1, 60);
+        spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
 
-        spawn_melee_npc(&mut commands, (-25.0, 0.0, -6.0), 2, 300);
-        spawn_melee_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 300);
-        spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 300);
+        spawn_melee_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
+        spawn_melee_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 60);
+        spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
 
-        spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 300);
-        spawn_melee_npc(&mut commands, (2.0, 0.0, -5.0), 3, 300);
-        spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 300);
+        spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
+        spawn_melee_npc(&mut commands, (2.0, 0.0, -5.0), 3, 60);
+        spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
 
         voidrun_simulation::log("✅ NPCs spawned successfully (9 NPCs, 3 factions)");
     }
@@ -203,11 +145,11 @@ impl SimulationBridge {
             // Используем spawn напрямую вместо Commands
             entity_commands.insert((
                 voidrun_simulation::components::Player,
-                voidrun_simulation::components::Actor { faction_id: 0 },
+                voidrun_simulation::components::Actor { faction_id: 1 },
                 voidrun_simulation::StrategicPosition::from_world_position(
                     bevy::prelude::Vec3::new(0.0, 2.0, 0.0),
                 ),
-                voidrun_simulation::PrefabPath::new("res://actors/test_actor.tscn"),
+                voidrun_simulation::PrefabPath::new("res://actors/test_player.tscn"),
                 voidrun_simulation::Health {
                     current: 100,
                     max: 100,
@@ -217,12 +159,30 @@ impl SimulationBridge {
                     max: 100.0,
                     regen_rate: 10.0,
                 },
-                voidrun_simulation::combat::WeaponStats::melee_sword(),
+                voidrun_simulation::WeaponStats::melee_sword(),
                 voidrun_simulation::Attachment {
                     prefab_path: "res://actors/test_sword.tscn".to_string(),
-                    attachment_point: "RightHand/WeaponAttachment".to_string(),
+                    attachment_point: "%RightHandAttachment".to_string(),
                     attachment_type: voidrun_simulation::AttachmentType::Weapon,
                 },
+                // Equipment components (new system)
+                voidrun_simulation::EquippedWeapons {
+                    primary_large_1: Some(voidrun_simulation::EquippedItem {
+                        definition_id: "melee_sword".into(),
+                        durability: 1.0,
+                        ammo_count: None,
+                    }),
+                    primary_large_2: None,
+                    secondary_small_1: Some(voidrun_simulation::EquippedItem {
+                        definition_id: "pistol_basic".into(),
+                        durability: 1.0,
+                        ammo_count: Some(30),
+                    }),
+                    secondary_small_2: None,
+                    active_slot: 0, // Активен slot 0 (меч)
+                },
+                voidrun_simulation::ConsumableSlots::default(), // Базовые 2 слота
+                voidrun_simulation::Inventory::empty(), // Пустой инвентарь пока
             ));
 
             player_entity
@@ -283,5 +243,48 @@ impl SimulationBridge {
         };
 
         app.world_mut().send_event(input_event);
+    }
+
+    /// Emit CameraToggleEvent в ECS (вызывается из PlayerInputController)
+    ///
+    /// Flow:
+    /// 1. PlayerInputController читает [V] key press
+    /// 2. Вызывает этот метод (debounced 300ms)
+    /// 3. camera_toggle_system переключает FPS ↔ RTS camera
+    pub fn emit_camera_toggle_event(&mut self, event: crate::input::CameraToggleEvent) {
+        let Some(app) = &mut self.simulation else {
+            return;
+        };
+
+        app.world_mut().send_event(event);
+    }
+
+    /// Emit MouseLookEvent в ECS (вызывается из PlayerInputController)
+    ///
+    /// Flow:
+    /// 1. PlayerInputController читает mouse motion (unhandled_input)
+    /// 2. Вызывает этот метод каждый mouse movement
+    /// 3. player_mouse_look system вращает Actor body + CameraPivot
+    pub fn emit_mouse_look_event(&mut self, event: crate::input::MouseLookEvent) {
+        let Some(app) = &mut self.simulation else {
+            return;
+        };
+
+        app.world_mut().send_event(event);
+    }
+
+    /// Emit WeaponSwitchEvent в ECS (вызывается из PlayerInputController)
+    ///
+    /// Flow:
+    /// 1. PlayerInputController читает Digit1-9 key press
+    /// 2. Вызывает этот метод с slot_index (0-8)
+    /// 3. process_player_weapon_switch конвертирует в WeaponSwitchIntent
+    /// 4. process_weapon_switch меняет ActiveWeaponSlot + Attachment
+    pub fn emit_weapon_switch_event(&mut self, event: crate::input::WeaponSwitchEvent) {
+        let Some(app) = &mut self.simulation else {
+            return;
+        };
+
+        app.world_mut().send_event(event);
     }
 }

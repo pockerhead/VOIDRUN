@@ -5,7 +5,12 @@
       "Read(//c/Users/user/dev/gamedev/3d-rpg/**)",
       "Bash(cargo build:*)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(cargo test -p voidrun_simulation equipment::tests::test_energy_shield_damage_recharge)",
+      "Bash(cargo test -p voidrun_simulation equipment)",
+      "Bash(cargo test --package voidrun_simulation item_system)",
+      "Bash(cargo test --package voidrun_simulation equipment)",
+      "Bash(cargo clippy --package voidrun_simulation)"
     ],
     "deny": [],
     "ask": []

@@ -1,16 +1,6 @@
-[gd_scene load_steps=17 format=3 uid="uid://b11myb8dfjdc6"]
+[gd_scene load_steps=21 format=3 uid="uid://b11myb8dfjdc6"]
 
 [ext_resource type="Shape3D" uid="uid://chinlvaytthss" path="res://resources/shapes/vision_con.tres" id="1_6ks1i"]
-
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_x3k1a"]
-radius = 0.2
-height = 0.6
-
-[sub_resource type="CylinderShape3D" id="CylinderShape3D_qev7w"]
-radius = 100.0
-
-[sub_resource type="BoxMesh" id="BoxMesh_x3k1a"]
-size = Vector3(0.045, 0.055, 0.135)
 
 [sub_resource type="BoxMesh" id="BoxMesh_6ks1i"]
 size = Vector3(0.715, 0.945, 0.475)
@@ -232,36 +222,72 @@ _data = {
 &"melee_parry_recover": SubResource("Animation_qev7w")
 }
 
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_qev7w"]
+radius = 100.0
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_x3k1a"]
+radius = 0.2
+height = 0.6
+
+[sub_resource type="BoxMesh" id="BoxMesh_x3k1a"]
+size = Vector3(0.045, 0.055, 0.135)
+
+[sub_resource type="Animation" id="Animation_gf33l"]
+resource_name = "take_aim"
+length = 0.3
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.5743491, 1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0), Vector3(-0.016477644, 0.7159695, -0.561)]
+}
+
+[sub_resource type="Animation" id="Animation_fefi4"]
+resource_name = "recover_aim"
+length = 0.3
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.3),
+"transitions": PackedFloat32Array(0.36602136, 1),
+"update": 0,
+"values": [Vector3(-0.016477644, 0.7159695, -0.561), Vector3(-0.5, 0, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_s3w3c"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("RightHand:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(-0.5, 0, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_qdmuu"]
+_data = {
+&"RESET": SubResource("Animation_s3w3c"),
+&"recover_aim": SubResource("Animation_fefi4"),
+&"take_aim": SubResource("Animation_gf33l")
+}
+
 [node name="Actor" type="CharacterBody3D"]
 collision_layer = 2
-
-[node name="Head" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.80125606, 0)
-mesh = SubResource("CapsuleMesh_x3k1a")
-
-[node name="VisionCone" type="Area3D" parent="Head"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.455, 0)
-collision_layer = 0
-collision_mask = 2
-monitorable = false
-
-[node name="VisionShape" type="CollisionShape3D" parent="Head/VisionCone"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
-shape = ExtResource("1_6ks1i")
-
-[node name="Debug_VisionShape" type="CollisionShape3D" parent="Head/VisionCone"]
-shape = SubResource("CylinderShape3D_qev7w")
-disabled = true
-
-[node name="MeshInstance3D2" type="MeshInstance3D" parent="Head"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.078, 0.064743936, -0.159)
-mesh = SubResource("BoxMesh_x3k1a")
-skeleton = NodePath("../..")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Head"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.064743936, -0.159)
-mesh = SubResource("BoxMesh_x3k1a")
-skeleton = NodePath("../..")
 
 [node name="Torso" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.00038683414, 0, 0)
@@ -271,7 +297,8 @@ mesh = SubResource("BoxMesh_6ks1i")
 transform = Transform3D(1, 0, 0, 0, 0.99999994, 0, 0, 0, 1.0000001, -0.5, 0, 0)
 mesh = SubResource("CapsuleMesh_6ks1i")
 
-[node name="WeaponAttachment" type="Node3D" parent="RightHand"]
+[node name="RightHandAttachment" type="Node3D" parent="RightHand"]
+unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.016784549, 0, 0.0072513223)
 
 [node name="LeftHand" type="MeshInstance3D" parent="."]
@@ -293,3 +320,42 @@ libraries = {
 &"": SubResource("AnimationLibrary_kyktt")
 }
 autoplay = "RESET"
+
+[node name="Head" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+
+[node name="VisionCone" type="Area3D" parent="Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.455, 0)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+
+[node name="VisionShape" type="CollisionShape3D" parent="Head/VisionCone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = ExtResource("1_6ks1i")
+
+[node name="Debug_VisionShape" type="CollisionShape3D" parent="Head/VisionCone"]
+shape = SubResource("CylinderShape3D_qev7w")
+disabled = true
+
+[node name="HeadMeshes" type="Node3D" parent="Head"]
+unique_name_in_owner = true
+
+[node name="HeadMesh" type="MeshInstance3D" parent="Head/HeadMeshes"]
+mesh = SubResource("CapsuleMesh_x3k1a")
+skeleton = NodePath("../../..")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="Head/HeadMeshes/HeadMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.078, 0.064743936, -0.159)
+mesh = SubResource("BoxMesh_x3k1a")
+skeleton = NodePath("../../../..")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Head/HeadMeshes/HeadMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.064743936, -0.159)
+mesh = SubResource("BoxMesh_x3k1a")
+skeleton = NodePath("../../../..")
+
+[node name="TakeAimAnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_qdmuu")
+}

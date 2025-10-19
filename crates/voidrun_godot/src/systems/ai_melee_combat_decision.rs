@@ -30,9 +30,9 @@
 use bevy::prelude::*;
 use godot::prelude::*;
 use rand::Rng;
-use voidrun_simulation::ai::{AIState, CombatAIEvent};
+use voidrun_simulation::ai::{AIState, GodotAIEvent};
 use voidrun_simulation::combat::{
-    AttackPhase, MeleeAttackIntent, MeleeAttackState, MeleeAttackType, ParryDelayTimer,
+    AttackPhase, AttackType, MeleeAttackIntent, MeleeAttackState, MeleeAttackType, ParryDelayTimer,
     ParryState, StaggerState, WeaponStats,
 };
 use voidrun_simulation::components::{Stamina, Player};
@@ -167,7 +167,7 @@ struct ActionOption {
 /// - **Cannot interrupt AttackActive/ParryWindup** (committed)
 /// - **Can start new attack after AttackRecovery** (cooldown permitting)
 pub fn ai_melee_combat_decision_main_thread(
-    mut telegraph_events: EventReader<CombatAIEvent>,
+    mut telegraph_events: EventReader<GodotAIEvent>,
     ai_query: Query<(Entity, &AIState, &WeaponStats, &Stamina, &Actor), (Without<StaggerState>, Without<Player>)>,
     actor_query: Query<&Actor>,
     attacks: Query<&MeleeAttackState>,
@@ -215,13 +215,13 @@ pub fn ai_melee_combat_decision_main_thread(
     // ========================================================================
     // STEP 1: Collect incoming attack telegraphs into HashMap (O(n))
     // ========================================================================
-    let mut telegraphs: HashMap<Entity, (Entity, f32)> = HashMap::new();
+    let mut telegraphs: HashMap<Entity, (Entity, AttackType, f32)> = HashMap::new();
 
     for event in telegraph_events.read() {
-        let CombatAIEvent::EnemyAttackTelegraphed {
+        let GodotAIEvent::EnemyWindupVisible {
             attacker,
-            target: defender,
-            attack_type: _,
+            defender,
+            attack_type,
             windup_remaining,
         } = event
         else {
@@ -229,7 +229,7 @@ pub fn ai_melee_combat_decision_main_thread(
         };
 
         // Store latest telegraph for each defender (if multiple attackers, last one wins)
-        telegraphs.insert(*defender, (*attacker, *windup_remaining));
+        telegraphs.insert(*defender, (*attacker, attack_type.clone(), *windup_remaining));
     }
 
     // ========================================================================
@@ -242,13 +242,14 @@ pub fn ai_melee_combat_decision_main_thread(
         };
 
         // Check if this entity has incoming attack telegraph
-        if let Some((attacker, windup_remaining)) = telegraphs.get(&entity) {
+        if let Some((attacker, attack_type, windup_remaining)) = telegraphs.get(&entity) {
             // ================================================================
             // REACTIVE PATH: React to incoming attack telegraph
             // ================================================================
             react_to_incoming_attack(
                 entity,
                 *attacker,
+                attack_type.clone(),
                 *windup_remaining,
                 ai_state,
                 weapon,
@@ -300,6 +301,7 @@ pub fn ai_melee_combat_decision_main_thread(
 fn react_to_incoming_attack(
     defender: Entity,
     attacker: Entity,
+    attack_type: AttackType,
     windup_remaining: f32,
     ai_state: &AIState,
     weapon: &WeaponStats,
@@ -332,6 +334,7 @@ fn react_to_incoming_attack(
         &current_action,
         attacks,
         attacker,
+        attack_type,
         windup_remaining,
         visuals,
     );
@@ -449,13 +452,12 @@ fn proactive_attack_decision(
         // ========================================
         attack_intent_events.write(MeleeAttackIntent {
             attacker: entity,
-            target,
             attack_type: MeleeAttackType::Normal,
         });
 
         voidrun_simulation::log(&format!(
-            "⚔️ PROACTIVE: entity {:?} decides to ATTACK target {:?} (LOS clear, different faction)",
-            entity, target
+            "⚔️ PROACTIVE: entity {:?} decides to ATTACK (LOS clear, different faction)",
+            entity
         ));
     } else {
         // ========================================
@@ -544,6 +546,7 @@ fn evaluate_available_actions(
     current_action: &CurrentAction,
     attacks: &Query<&MeleeAttackState>,
     incoming_attacker: Entity,
+    incoming_attack_type: AttackType,
     incoming_windup_remaining: f32,
     visuals: &NonSend<VisualRegistry>,
 ) -> Vec<ActionOption> {
@@ -564,6 +567,7 @@ fn evaluate_available_actions(
             entity,
             ai_state,
             incoming_attacker,
+            incoming_attack_type,
             incoming_windup_remaining,
             attacks,
             visuals,
@@ -646,10 +650,15 @@ fn evaluate_parry_option(
     defender: Entity,
     ai_state: &AIState,
     attacker: Entity,
+    attack_type: AttackType,
     windup_remaining: f32,
     attacks: &Query<&MeleeAttackState>,
     visuals: &NonSend<VisualRegistry>,
 ) -> Option<ActionOption> {
+    // Future: Check if attack is parryable based on type
+    // if attack_type == AttackType::Heavy { return None; }  // Heavy cannot be parried
+
+    // For now: all attacks can be parried
     // 1. Check attacker is in Windup phase (can react to)
     let Ok(attack_state) = attacks.get(attacker) else {
         return None;
@@ -833,7 +842,6 @@ fn execute_decision(
         ActionType::Attack { target } => {
             attack_intent_events.write(MeleeAttackIntent {
                 attacker: entity,
-                target,
                 attack_type: MeleeAttackType::Normal,
             });
 

@@ -79,6 +79,15 @@ impl INode3D for RTSCamera3D {
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {
+        // Guard: только если RTS camera активна (не обрабатываем input когда player в FPS mode)
+        if let Some(cam) = &self.camera {
+            if !cam.is_current() {
+                return; // RTS camera неактивна → не обрабатываем input
+            }
+        } else {
+            return; // Camera ещё не создана
+        }
+
         // Mouse drag rotation (RMB)
         if let Ok(motion) = event.clone().try_cast::<InputEventMouseMotion>() {
             if self.is_rotating {

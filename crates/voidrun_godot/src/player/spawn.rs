@@ -39,9 +39,9 @@ pub fn spawn_player(
     commands
         .spawn((
             Player, // Marker: player-controlled (не AI)
-            Actor { faction_id: 0 }, // Faction 0 = player faction
+            Actor { faction_id: 1 }, // Faction 0 = player faction
             strategic_pos,
-            PrefabPath::new("res://actors/test_actor.tscn"), // TODO: player-specific prefab (test_player.tscn)
+            PrefabPath::new("res://actors/test_player.tscn"), // Player prefab (inherits test_actor + CameraPivot)
             Health {
                 current: 100,
                 max: 100,

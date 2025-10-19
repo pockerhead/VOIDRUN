@@ -40,19 +40,19 @@ use crate::systems::{VisualRegistry, AttachmentRegistry};
 /// System: Process melee attack intents (Godot tactical validation).
 ///
 /// Validates:
-/// - Distance check (Godot Transform authoritative)
-/// - Line of sight (optional, TODO)
+/// - Attacker has weapon
+/// - Attacker not already attacking
 ///
+/// **CHANGED:** No distance/LOS check (area-based detection, hitbox determines targets).
 /// If validation passes → generates `MeleeAttackStarted` event.
 pub fn process_melee_attack_intents_main_thread(
     mut intent_events: EventReader<MeleeAttackIntent>,
-    visuals: NonSend<VisualRegistry>,
     weapons: Query<&WeaponStats>,
     attack_states: Query<&MeleeAttackState>,
     mut started_events: EventWriter<MeleeAttackStarted>,
 ) {
     for intent in intent_events.read() {
-        voidrun_simulation::log(&format!("📥 Godot: Received melee intent (attacker: {:?}, target: {:?})", intent.attacker, intent.target));
+        voidrun_simulation::log(&format!("📥 Godot: Received melee intent (attacker: {:?})", intent.attacker));
 
         // Skip if attacker already has MeleeAttackState (attack in progress)
         if attack_states.get(intent.attacker).is_ok() {
@@ -60,39 +60,15 @@ pub fn process_melee_attack_intents_main_thread(
             continue;
         }
 
-        // Get Godot nodes
-        let Some(attacker_node) = visuals.visuals.get(&intent.attacker) else {
-            voidrun_simulation::log(&format!("❌ Godot: attacker {:?} has no visual node", intent.attacker));
-            continue;
-        };
-        let Some(target_node) = visuals.visuals.get(&intent.target) else {
-            voidrun_simulation::log(&format!("❌ Godot: target {:?} has no visual node", intent.target));
-            continue;
-        };
-
         // Get weapon stats for attack parameters
         let Ok(weapon) = weapons.get(intent.attacker) else {
             voidrun_simulation::log(&format!("❌ Godot: attacker {:?} has no weapon", intent.attacker));
             continue;
         };
 
-        // Tactical validation: distance check
-        let attacker_pos = attacker_node.get_global_position();
-        let target_pos = target_node.get_global_position();
-        let distance = attacker_pos.distance_to(target_pos);
-
-        if distance > weapon.attack_radius {
-            // Too far away
-            voidrun_simulation::log(&format!("❌ Godot: Melee validation FAILED ({:.2}m > {:.2}m radius)", distance, weapon.attack_radius));
-            continue;
-        }
-
-        // TODO: Line of sight check (raycast)
-
         // Validation passed → generate MeleeAttackStarted
         started_events.write(MeleeAttackStarted {
             attacker: intent.attacker,
-            target: intent.target,
             attack_type: intent.attack_type.clone(),
             windup_duration: weapon.windup_duration,
             attack_duration: weapon.attack_duration,
@@ -100,8 +76,8 @@ pub fn process_melee_attack_intents_main_thread(
         });
 
         voidrun_simulation::log(&format!(
-            "⚔️ Godot: Melee attack validated (attacker: {:?}, target: {:?}, distance: {:.2}m)",
-            intent.attacker, intent.target, distance
+            "⚔️ Godot: Melee attack validated (attacker: {:?})",
+            intent.attacker
         ));
     }
 }
@@ -133,7 +109,7 @@ pub fn execute_melee_attacks_main_thread(
         };
 
         // Get weapon attachment (for hitbox control)
-        let Some(weapon_attachment) = attachments.attachments.get(&(entity, "RightHand/WeaponAttachment".to_string())) else {
+        let Some(weapon_attachment) = attachments.attachments.get(&(entity, "%RightHandAttachment".to_string())) else {
             voidrun_simulation::log(&format!(
                 "⚠️ Godot: Melee attack entity {:?} has no weapon attachment",
                 entity
@@ -243,7 +219,8 @@ pub fn execute_melee_attacks_main_thread(
 /// Checks Area3D.get_overlapping_bodies() every frame during Active phase.
 /// Generates MeleeHit event when hitbox touches enemy body.
 ///
-/// **Anti-spam:** Uses `has_hit_target` flag to ensure only ONE hit per attack.
+/// **Anti-spam:** Uses `hit_entities` to track all entities hit this attack.
+/// **CHANGED:** Multi-target support (cleave damage), no single target restriction.
 pub fn poll_melee_hitboxes_main_thread(
     mut query: Query<(Entity, &mut MeleeAttackState)>,
     visuals: NonSend<VisualRegistry>,
@@ -256,13 +233,8 @@ pub fn poll_melee_hitboxes_main_thread(
             continue;
         };
 
-        // Skip if already hit target this attack (prevent spam!)
-        if attack_state.has_hit_target {
-            continue;
-        }
-
         // Get weapon attachment
-        let Some(weapon_attachment) = attachments.attachments.get(&(attacker, "RightHand/WeaponAttachment".to_string())) else {
+        let Some(weapon_attachment) = attachments.attachments.get(&(attacker, "%RightHandAttachment".to_string())) else {
             continue;
         };
 
@@ -287,8 +259,8 @@ pub fn poll_melee_hitboxes_main_thread(
                         continue;
                     }
 
-                    // Only hit intended target (prevent cleave damage for now)
-                    if target_entity != attack_state.target {
+                    // Skip if already hit this entity (prevent double-hits)
+                    if attack_state.hit_entities.contains(&target_entity) {
                         continue;
                     }
 
@@ -302,16 +274,15 @@ pub fn poll_melee_hitboxes_main_thread(
                         was_parried: false, // TODO: Check target parry state
                     });
 
-                    // Mark as hit to prevent multiple hits per attack
-                    attack_state.has_hit_target = true;
+                    // Track entity as hit (prevent multiple hits on same target)
+                    attack_state.hit_entities.push(target_entity);
 
                     voidrun_simulation::log(&format!(
                         "💥 Godot: Melee hit detected! (attacker: {:?}, target: {:?})",
                         attacker, target_entity
                     ));
 
-                    // Break after first hit (no cleave damage)
-                    break;
+                    // Continue to allow cleave damage (multi-target hits)
                 }
             }
         }

@@ -14,18 +14,23 @@ pub fn register_systems(app: &mut App) {
         apply_retreat_velocity_main_thread,
         apply_safe_velocity_system, // NavigationAgent3D avoidance
         attach_prefabs_main_thread,
+        camera_toggle_system, // Camera toggle [V] key (FPS ↔ RTS)
         despawn_actor_visuals_main_thread,
         detach_prefabs_main_thread,
         disable_collision_on_death_main_thread,
         execute_melee_attacks_main_thread,
         execute_parry_animations_main_thread,
         execute_stagger_animations_main_thread,
+        player_mouse_look,    // Mouse look (FPS only)
         poll_melee_hitboxes_main_thread,
         poll_vision_cones_main_thread,
         process_godot_projectile_hits,
         process_melee_attack_intents_main_thread,
         process_movement_commands_main_thread,
         process_ranged_attack_intents_main_thread,
+        process_player_weapon_switch, // Weapon switch (Godot input → SwapActiveWeaponIntent)
+        // process_weapon_switch удалён — в voidrun_simulation::EquipmentPlugin
+        setup_player_camera,           // Setup player camera при spawn
         spawn_actor_visuals_main_thread,
         sync_ai_state_labels_main_thread,
         sync_health_labels_main_thread,
@@ -36,18 +41,26 @@ pub fn register_systems(app: &mut App) {
         weapon_fire_main_thread,
     };
 
+    use crate::systems::weapon_system::detect_melee_windups_main_thread;
+
     // 1. Регистрируем Godot tactical layer events
     app.add_event::<crate::events::SafeVelocityComputed>();
     app.add_event::<voidrun_simulation::JumpIntent>();
     app.add_event::<crate::input::PlayerInputEvent>(); // Player input events
+    app.add_event::<crate::input::CameraToggleEvent>(); // Camera toggle [V]
+    app.add_event::<crate::input::MouseLookEvent>(); // Mouse look
+    app.add_event::<crate::input::WeaponSwitchEvent>(); // Weapon switch (Digit1-9)
+    // NOTE: WeaponSwitchIntent удалён, используется SwapActiveWeaponIntent из EquipmentPlugin
 
-    // 2. Main schedule (spawn/attach/detach prefabs)
+    // 2. Main schedule (spawn/attach/detach prefabs + player camera setup)
     // ВАЖНО: attach_prefabs ПОСЛЕ spawn_actor_visuals (иначе entity не в VisualRegistry!)
+    // setup_player_camera ПОСЛЕ attach_prefabs (camera setup нуждается в полном prefab)
     app.add_systems(
         Main,
         (
             spawn_actor_visuals_main_thread,
             attach_prefabs_main_thread,
+            setup_player_camera, // Setup FPS camera при player spawn (ПОСЛЕ attach!)
             detach_prefabs_main_thread,
         )
             .chain(),
@@ -64,12 +77,16 @@ pub fn register_systems(app: &mut App) {
             .chain(),
     );
 
-    // 4. Update schedule - Input + Labels + Death handling
+    // 4. Update schedule - Input + Camera + Labels + Death handling + Weapon Switch
     app.add_systems(
         Update,
         (
-            crate::input::process_player_input,       // Player input → MovementCommand + JumpIntent
+            crate::input::process_player_input,       // Player input → velocity (FPS camera-relative)
             crate::input::player_combat_input,        // Player input → MeleeAttackIntent
+            process_player_weapon_switch,             // Weapon switch input → SwapActiveWeaponIntent
+            // process_weapon_switch удалён — в voidrun_simulation::EquipmentPlugin
+            camera_toggle_system,                     // [V] key → toggle FPS ↔ RTS
+            player_mouse_look,                        // Mouse motion → Actor yaw + CameraPivot pitch
             process_movement_commands_main_thread,    // MovementCommand → NavigationAgent3D
             update_follow_entity_targets_main_thread, // Update FollowEntity targets every frame
             apply_retreat_velocity_main_thread,       // RetreatFrom → backpedal + face target
@@ -108,6 +125,15 @@ pub fn register_systems(app: &mut App) {
             update_combat_targets_main_thread, // Dynamic target switching (closest visible spotted enemy)
         )
             .chain(),
+    );
+
+    // 7. CombatUpdate schedule (10 Hz = ~10 раз в секунду)
+    // Для систем визуального обнаружения замахов (windup detection)
+    app.add_systems(
+        CombatUpdate,
+        (
+            detect_melee_windups_main_thread, // Visual windup detection → GodotAIEvent::EnemyWindupVisible
+        ),
     );
 }
 

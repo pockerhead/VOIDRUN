@@ -42,7 +42,7 @@ pub fn spawn_melee_npc(
             ai::SpottedEnemies::default(),
             Attachment {
                 prefab_path: "res://actors/test_sword.tscn".to_string(), // ✅ Sword prefab
-                attachment_point: "RightHand/WeaponAttachment".to_string(),
+                attachment_point: "%RightHandAttachment".to_string(),
                 attachment_type: AttachmentType::Weapon,
             },
         ))
@@ -86,7 +86,7 @@ pub fn spawn_test_npc(
             ai::SpottedEnemies::default(), // Godot VisionCone → GodotAIEvent → обновляет список
             Attachment {
                 prefab_path: "res://actors/test_pistol.tscn".to_string(),
-                attachment_point: "RightHand/WeaponAttachment".to_string(),
+                attachment_point: "%RightHandAttachment".to_string(),
                 attachment_type: AttachmentType::Weapon,
             },
         ))

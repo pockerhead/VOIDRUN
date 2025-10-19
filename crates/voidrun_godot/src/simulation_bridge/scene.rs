@@ -4,8 +4,11 @@
 
 use super::SimulationBridge;
 use crate::camera::rts_camera::RTSCamera3D;
-use godot::classes::{light_3d::Param as LightParam, Button, CanvasLayer, DirectionalLight3D, Label, Node, Timer};
+use godot::classes::{
+    light_3d::Param as LightParam, CanvasLayer, DirectionalLight3D, Node, Timer,
+};
 use godot::prelude::*;
+use godot::builtin::GString;
 
 impl SimulationBridge {
     /// Создать NavigationRegion3D + NavMesh (baking из SceneTree children)
@@ -13,7 +16,9 @@ impl SimulationBridge {
     /// TEST: Проверяем что NavMesh запекается из StaticBody3D/CSGBox3D children,
     /// а не из процедурной геометрии (для будущего chunk building).
     pub(super) fn create_navigation_region(&mut self) {
-        use crate::chunk_navmesh::{create_test_navigation_region_with_obstacles, NavMeshBakingParams};
+        use crate::chunk_navmesh::{
+            create_test_navigation_region_with_obstacles, NavMeshBakingParams,
+        };
 
         // 1. Создаём параметры NavMesh baking
         let mut params = NavMeshBakingParams::default();
@@ -26,7 +31,8 @@ impl SimulationBridge {
         let mut nav_region = create_test_navigation_region_with_obstacles(&params);
 
         // 3. Добавляем NavigationRegion3D в сцену ПЕРЕД baking
-        self.base_mut().add_child(&nav_region.clone().upcast::<Node>());
+        self.base_mut()
+            .add_child(&nav_region.clone().upcast::<Node>());
 
         voidrun_simulation::log("🔧 Baking NavMesh from SceneTree (StaticBody3D children)...");
 
@@ -105,56 +111,37 @@ impl SimulationBridge {
         voidrun_simulation::log("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
     }
 
-    /// Создать FPS counter label + Spawn button (top-left corner)
+    /// Создать DebugOverlay (FPS counter, spawn buttons, F3 toggle)
     ///
-    /// Returns (fps_label, spawn_button) для хранения references в SimulationBridge
-    pub(super) fn create_fps_label(&mut self) -> (Gd<Label>, Gd<Button>) {
+    /// DebugOverlay — отдельный Control node с всем debug UI.
+    /// Создаётся через CanvasLayer для рендеринга поверх 3D сцены.
+    pub(super) fn create_debug_overlay(&mut self) {
         // CanvasLayer для UI overlay (рендерится поверх 3D сцены)
         let mut canvas_layer = CanvasLayer::new_alloc();
 
-    // Label для FPS
-    let mut label = Label::new_alloc();
-    label.set_text("FPS: --");
+        // Получаем путь к SimulationBridge
+        let bridge_path = self.base().get_path();
 
-    // Позиция: top-left corner
-    label.set_position(Vector2::new(10.0, 10.0));
+        // Создаём DebugOverlay node с передачей пути через bind_mut
+        use godot::classes::IControl;
+        let mut debug_overlay =
+            Gd::<crate::debug_overlay::DebugOverlay>::from_init_fn(|base| {
+                <crate::debug_overlay::DebugOverlay as IControl>::init(base)
+            });
 
-    // Стиль: белый текст, крупный шрифт
-    label.add_theme_color_override("font_color", Color::from_rgb(1.0, 1.0, 1.0));
-    label.add_theme_font_size_override("font_size", 24);
+        // Устанавливаем путь к SimulationBridge ПЕРЕД добавлением в дерево
+        let path_string = bridge_path.to_string();
+        debug_overlay.bind_mut().simulation_bridge_path = path_string.as_str().into();
 
-    // Добавляем label в canvas layer
-    canvas_layer.add_child(&label.clone().upcast::<Node>());
+        // Устанавливаем anchor preset (full rect — занимает весь экран)
+        debug_overlay.set_anchors_preset(godot::classes::control::LayoutPreset::FULL_RECT);
 
-    // Button для спавна NPC (под FPS label)
-    let mut button = Button::new_alloc();
-    button.set_text("Spawn NPCs");
-    button.set_position(Vector2::new(10.0, 50.0)); // Под FPS label
-    button.set_size(Vector2::new(150.0, 40.0));
-
-    // NOTE: Signal подключается в SimulationBridge::ready() (нужен callable)
-    // button.connect("pressed", &callable);
-
-    // Добавляем button в canvas layer
-    canvas_layer.add_child(&button.clone().upcast::<Node>());
-
-    // Button для спавна Player (под Spawn NPCs button)
-    let mut player_button = Button::new_alloc();
-    player_button.set_text("Spawn Player");
-    player_button.set_position(Vector2::new(10.0, 100.0)); // Под Spawn NPCs button
-    player_button.set_size(Vector2::new(150.0, 40.0));
-
-    // NOTE: Signal подключается в SimulationBridge::ready() (нужен callable)
-    // player_button.connect("pressed", &player_callable);
-
-    // Добавляем player button в canvas layer
-    canvas_layer.add_child(&player_button.upcast::<Node>());
+        // Добавляем DebugOverlay в canvas layer
+        canvas_layer.add_child(&debug_overlay.upcast::<Node>());
 
         // Добавляем canvas layer в сцену
         self.base_mut().add_child(&canvas_layer.upcast::<Node>());
 
-        voidrun_simulation::log("FPS counter + Spawn buttons UI created (top-left corner)");
-
-        (label, button)
+        voidrun_simulation::log("DebugOverlay created (F3 to toggle)");
     }
 }

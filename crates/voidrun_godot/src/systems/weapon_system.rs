@@ -9,8 +9,10 @@ use bevy::prelude::*;
 use godot::prelude::*;
 use godot::classes::{Node3D, SphereMesh, StandardMaterial3D, Mesh, Material, CollisionShape3D, SphereShape3D, Node, ICharacterBody3D};
 use voidrun_simulation::*;
-use voidrun_simulation::combat::{WeaponFired, WeaponFireIntent};
+use voidrun_simulation::combat::{WeaponFired, WeaponFireIntent, AttackType, MeleeAttackState, WeaponStats};
+use voidrun_simulation::ai::{GodotAIEvent, SpottedEnemies};
 use crate::systems::VisualRegistry;
+use crate::actor_utils::{actors_facing_each_other, angles};
 
 // ============================================================================
 // Systems: Weapon Aim + Fire
@@ -384,7 +386,7 @@ pub fn weapon_fire_main_thread(
         };
 
         // 1. Находим BulletSpawn node для spawn_position
-        let (spawn_position, weapon_node) = if let Some(weapon_attachment) = actor_node.try_get_node_as::<Node3D>("RightHand/WeaponAttachment") {
+        let (spawn_position, weapon_node) = if let Some(weapon_attachment) = actor_node.try_get_node_as::<Node3D>("%RightHandAttachment") {
             // Рекурсивно ищем BulletSpawn внутри WeaponAttachment
             if let Some(bullet_spawn) = find_node_recursive(&weapon_attachment, "BulletSpawn") {
                 (bullet_spawn.get_global_position(), Some(bullet_spawn))
@@ -531,6 +533,85 @@ fn find_node_recursive(parent: &Gd<Node3D>, name: &str) -> Option<Gd<Node3D>> {
         }
     }
     None
+}
+
+/// System: Detect visible melee windups (CombatUpdate, 10 Hz)
+///
+/// For all actors in Windup phase:
+/// - Spatial query: enemies within weapon range
+/// - Angle check: **MUTUAL FACING** (both attacker→defender AND defender→attacker within 35° cone)
+/// - Visibility: defender in attacker's SpottedEnemies
+/// - Emit: GodotAIEvent::EnemyWindupVisible (broadcast to all visible defenders)
+///
+/// **AI реагирует на визуальные cues (реалистично, работает для player + AI)**
+///
+/// **Frequency:** 10 Hz (CombatUpdate schedule)
+/// **Parameters:** Hardcoded (angle 35°, будущий балансинг через WeaponStats)
+pub fn detect_melee_windups_main_thread(
+    attackers: Query<(Entity, &Actor, &MeleeAttackState, &WeaponStats, &SpottedEnemies)>,
+    defenders: Query<&Actor>,
+    visuals: NonSend<VisualRegistry>,
+    mut ai_events: EventWriter<GodotAIEvent>,
+) {
+    for (attacker_entity, attacker_actor, attack_state, weapon, spotted) in attackers.iter() {
+        // Только Windup phase
+        if !attack_state.is_windup() {
+            continue;
+        }
+
+        // Godot Transform (tactical layer)
+        let Some(attacker_node) = visuals.visuals.get(&attacker_entity) else {
+            continue;
+        };
+
+        let attacker_pos = attacker_node.get_global_position();
+
+        // Spatial query: все видимые враги в spotted
+        for &defender_entity in &spotted.enemies {
+            // Проверка faction (только враги)
+            let Ok(defender_actor) = defenders.get(defender_entity) else {
+                continue;
+            };
+
+            if defender_actor.faction_id == attacker_actor.faction_id {
+                continue;
+            }
+
+            // Distance check
+            let Some(defender_node) = visuals.visuals.get(&defender_entity) else {
+                continue;
+            };
+
+            let defender_pos = defender_node.get_global_position();
+            let distance = (defender_pos - attacker_pos).length();
+
+            if distance > weapon.attack_radius {
+                continue;
+            }
+
+            // ✅ MUTUAL FACING CHECK (using actor_utils)
+            let Some((dot_attacker, dot_defender)) = actors_facing_each_other(
+                attacker_node,
+                defender_node,
+                angles::TIGHT_35_DEG,
+            ) else {
+                continue; // Not facing each other
+            };
+
+            // ✅ MUTUAL FACING - DEFENDER CAN SEE WINDUP!
+            ai_events.write(GodotAIEvent::EnemyWindupVisible {
+                attacker: attacker_entity,
+                defender: defender_entity,
+                attack_type: AttackType::Melee, // Всегда Melee для melee атак
+                windup_remaining: attack_state.phase_timer,
+            });
+
+            voidrun_simulation::log(&format!(
+                "👁️ Windup visible (MUTUAL FACING): {:?} → {:?} (distance: {:.1}m, attacker_angle: {:.2}, defender_angle: {:.2}, windup: {:.2}s)",
+                attacker_entity, defender_entity, distance, dot_attacker, dot_defender, attack_state.phase_timer
+            ));
+        }
+    }
 }
 
 #[cfg(test)]

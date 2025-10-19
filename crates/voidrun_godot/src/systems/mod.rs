@@ -6,6 +6,8 @@ pub mod weapon_system;
 pub mod melee_system;
 pub mod movement_system;
 pub mod ai_melee_combat_decision;
+pub mod player_camera_system;
+pub mod weapon_switch;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
 pub use vision_system::VisionTracking;
@@ -56,6 +58,17 @@ pub use movement_system::{
     apply_navigation_velocity_main_thread,
     apply_safe_velocity_system, // NavigationAgent3D avoidance (velocity_computed signal)
     // УДАЛЕНО: sync_strategic_position_from_godot (заменён на event-driven)
+};
+
+pub use player_camera_system::{
+    setup_player_camera,
+    camera_toggle_system,
+    player_mouse_look,
+};
+
+pub use weapon_switch::{
+    process_player_weapon_switch,
+    // process_weapon_switch удалён — теперь в voidrun_simulation::EquipmentPlugin
 };
 
 /// Godot delta time (обновляется каждый frame в SimulationBridge::process)
