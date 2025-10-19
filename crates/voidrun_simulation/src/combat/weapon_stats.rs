@@ -156,7 +156,7 @@ impl WeaponStats {
 
             // Ranged stats
             range: 20.0,
-            projectile_speed: 300.0,
+            projectile_speed: 8.0,
             hearing_range: 100.0,
         }
     }

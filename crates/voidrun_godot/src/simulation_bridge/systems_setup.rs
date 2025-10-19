@@ -39,6 +39,10 @@ pub fn register_systems(app: &mut App) {
         update_follow_entity_targets_main_thread,
         weapon_aim_main_thread,
         weapon_fire_main_thread,
+        // Player shooting systems (ADS + Hip Fire)
+        process_ads_toggle,
+        update_ads_position_transition,
+        player_hip_fire_aim,
     };
 
     use crate::systems::weapon_system::detect_melee_windups_main_thread;
@@ -50,6 +54,7 @@ pub fn register_systems(app: &mut App) {
     app.add_event::<crate::input::CameraToggleEvent>(); // Camera toggle [V]
     app.add_event::<crate::input::MouseLookEvent>(); // Mouse look
     app.add_event::<crate::input::WeaponSwitchEvent>(); // Weapon switch (Digit1-9)
+    app.add_event::<voidrun_simulation::components::player_shooting::ToggleADSIntent>(); // ADS toggle (RMB)
     // NOTE: WeaponSwitchIntent удалён, используется SwapActiveWeaponIntent из EquipmentPlugin
 
     // 2. Main schedule (spawn/attach/detach prefabs + player camera setup)
@@ -82,7 +87,10 @@ pub fn register_systems(app: &mut App) {
         Update,
         (
             crate::input::process_player_input,       // Player input → velocity (FPS camera-relative)
-            crate::input::player_combat_input,        // Player input → MeleeAttackIntent
+            crate::input::player_combat_input,        // Player input → MeleeAttackIntent + ToggleADSIntent
+            process_ads_toggle,                       // ToggleADSIntent → update AimMode state
+            update_ads_position_transition,           // Smooth lerp Hip ↔ ADS transitions
+            player_hip_fire_aim,                      // Hip Fire mode → dynamic raycast aiming
             process_player_weapon_switch,             // Weapon switch input → SwapActiveWeaponIntent
             // process_weapon_switch удалён — в voidrun_simulation::EquipmentPlugin
             camera_toggle_system,                     // [V] key → toggle FPS ↔ RTS
@@ -95,7 +103,6 @@ pub fn register_systems(app: &mut App) {
             sync_ai_state_labels_main_thread,
             disable_collision_on_death_main_thread, // Отключение collision + gray + DespawnAfter
             despawn_actor_visuals_main_thread, // Удаление Godot nodes для despawned entities
-            weapon_aim_main_thread,            // Aim RightHand at target
         ),
     );
 

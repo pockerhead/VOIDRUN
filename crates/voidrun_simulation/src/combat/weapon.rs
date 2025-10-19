@@ -14,13 +14,15 @@ use bevy::prelude::*;
 /// Event: Актёр ХОЧЕТ выстрелить (ECS strategic intent)
 /// ECS принимает strategic decision: "cooldown готов, target в Combat state"
 /// Godot validation проверяет tactical constraints: distance, LOS
+///
+/// **Note:** `target` опционален для player FPS shooting (direction = camera forward)
 #[derive(Event, Debug, Clone)]
 pub struct WeaponFireIntent {
     /// Кто хочет стрелять
     pub shooter: Entity,
 
-    /// В кого хочет стрелять
-    pub target: Entity,
+    /// В кого хочет стрелять (None = player FPS shooting без target)
+    pub target: Option<Entity>,
 
     /// Урон (из Weapon component)
     pub damage: u32,
@@ -38,13 +40,15 @@ pub struct WeaponFireIntent {
 /// Event: Актёр стреляет (ECS → Godot, после validation)
 /// Godot tactical layer проверил distance/LOS и разрешил выстрел
 /// Godot рассчитывает точное direction из weapon bone (+Z axis)
+///
+/// **Note:** `target` опционален (None = player FPS shooting, direction = weapon forward)
 #[derive(Event, Debug, Clone)]
 pub struct WeaponFired {
     /// Кто стреляет
     pub shooter: Entity,
 
-    /// В кого стреляет (для Godot aim calculation)
-    pub target: Entity,
+    /// В кого стреляет (None = направление из weapon bone, Some = fallback shooter→target)
+    pub target: Option<Entity>,
 
     /// Урон пули
     pub damage: u32,
@@ -108,7 +112,7 @@ pub fn ai_weapon_fire_intent(
         // Генерируем intent (Godot проверит distance/LOS)
         intent_events.write(WeaponFireIntent {
             shooter: entity,
-            target: *target,
+            target: Some(*target),
             damage: weapon.base_damage,
             speed: weapon.projectile_speed,
             max_range: weapon.range,

@@ -107,19 +107,19 @@ impl INode for PlayerInputController {
         // Jump (Space) - just_pressed через input map
         let jump = input.is_action_just_pressed("input_jump");
 
-        // Attack (LMB) - just_pressed через input map
-        let attack = input.is_action_just_pressed("input_attack");
+        // Primary action (LMB) - just_pressed через input map
+        let primary_action = input.is_action_just_pressed("primary_action");
 
-        // Parry (RMB) - just_pressed через input map
-        let parry = input.is_action_just_pressed("input_block");
+        // Secondary action (RMB) - just_pressed через input map
+        let secondary_action = input.is_action_just_pressed("secondary_action");
 
         // Создаём PlayerInputEvent
         let input_event = PlayerInputEvent {
             move_direction: Vec2::new(move_direction.x, move_direction.y),
             sprint,
             jump,
-            attack,
-            parry,
+            primary_action,
+            secondary_action,
         };
 
         // Emit event через SimulationBridge
@@ -149,8 +149,8 @@ impl INode for PlayerInputController {
         // (предотвращает Space активацию UI buttons)
         let input = Input::singleton();
         if input.is_action_just_pressed("input_jump")
-            || input.is_action_just_pressed("input_attack")
-            || input.is_action_just_pressed("input_block")
+            || input.is_action_just_pressed("primary_action")
+            || input.is_action_just_pressed("secondary_action")
             || input.is_action_just_pressed("debug_toggle")
             || input.is_action_pressed("input_forward")
             || input.is_action_pressed("input_backward")

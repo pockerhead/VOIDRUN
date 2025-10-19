@@ -10,6 +10,7 @@
 //! - player: player control marker (Player)
 //! - camera: camera mode tracking (CameraMode, ActiveCamera)
 //! - equipment: экипировка (EquippedWeapons, ConsumableSlots, Armor, EnergyShield, Inventory)
+//! - player_shooting: прицеливание (AimMode, ToggleADSIntent)
 
 pub mod actor;
 pub mod combat;
@@ -20,6 +21,7 @@ pub mod attachment;
 pub mod player;
 pub mod camera;
 pub mod equipment;
+pub mod player_shooting;
 
 // Re-exports для удобного импорта
 pub use actor::*;
@@ -31,3 +33,4 @@ pub use attachment::*;
 pub use player::*;
 pub use camera::*;
 pub use equipment::*;
+pub use player_shooting::*;

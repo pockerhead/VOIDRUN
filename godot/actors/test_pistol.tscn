@@ -1,8 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://1omaibv2lmqu"]
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_6kfj7"]
-radius = 0.06
-height = 0.3
+[sub_resource type="BoxMesh" id="BoxMesh_3f0n2"]
+size = Vector3(0.055, 0.25, 0.085)
 
 [sub_resource type="BoxMesh" id="BoxMesh_6kfj7"]
 size = Vector3(0.04, 0.14, 0.075)
@@ -11,8 +10,8 @@ size = Vector3(0.04, 0.14, 0.075)
 size = Vector3(0.01, 0.1, 0.02)
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_3f0n2"]
-top_radius = 0.03
-bottom_radius = 0.03
+top_radius = 0.02
+bottom_radius = 0.02
 height = 0.068
 
 [node name="Node3D" type="Node3D"]
@@ -22,11 +21,12 @@ transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 0
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="WeaponPlacement"]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
-mesh = SubResource("CapsuleMesh_6kfj7")
+mesh = SubResource("BoxMesh_3f0n2")
 skeleton = NodePath("../..")
 
 [node name="BulletSpawn" type="Node3D" parent="WeaponPlacement"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.47045e-09, 0, 0.15186378)
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.975909e-10, 0.010259762, 0.14302334)
 
 [node name="MeshInstance3D2" type="MeshInstance3D" parent="WeaponPlacement"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.117724, -0.07213485)
@@ -46,8 +46,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.010867057, 0.016000003, -0.
 mesh = SubResource("BoxMesh_bml87")
 
 [node name="MeshInstance3D6" type="MeshInstance3D" parent="WeaponPlacement"]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, -1.1715693e-08, 0, 0.13401192)
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0.01, 0.109)
 mesh = SubResource("CylinderMesh_3f0n2")
 
 [node name="SightSocket" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15291916, 0)
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1509903, 0)

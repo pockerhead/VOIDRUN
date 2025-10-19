@@ -44,11 +44,15 @@ pub struct PlayerInputEvent {
     /// Jump key (Space) - just_pressed
     pub jump: bool,
 
-    /// Attack key (LMB) - just_pressed
-    pub attack: bool,
+    /// Primary action (LMB) - just_pressed
+    /// - Melee weapon: attack
+    /// - Ranged weapon: fire
+    pub primary_action: bool,
 
-    /// Parry key (RMB) - just_pressed
-    pub parry: bool,
+    /// Secondary action (RMB) - just_pressed
+    /// - Melee weapon: parry
+    /// - Ranged weapon: toggle ADS
+    pub secondary_action: bool,
 }
 
 /// Camera toggle event - переключение между FPS и RTS camera

@@ -1,8 +1,8 @@
 # Equipment & Inventory System Refactor
 
-**Статус:** Планирование
-**Версия:** 1.0
-**Дата:** 2025-10-19
+**Статус:** Phase 1-3 Complete ✅ | Phase 4-7 Postponed ⏸️
+**Версия:** 1.1
+**Дата:** 2025-10-19 (updated)
 
 ---
 
@@ -683,153 +683,210 @@ fn spawn_ai_with_equipment(
 
 ## Implementation Plan
 
-### Phase 1: Core Data Model (1 session)
+### Phase 1: Core Data Model ✅ COMPLETE
+
 **Goal:** Создать базовую инфраструктуру
 
-- [ ] Создать `item_system.rs` модуль
-- [ ] Типы: `ItemDefinition`, `ItemId`, `ItemType`, `ItemInstance`
-- [ ] Hardcoded definitions для базовых items:
+- [x] Создать `item_system.rs` модуль
+- [x] Типы: `ItemDefinition`, `ItemId`, `ItemType`, `ItemInstance`
+- [x] Hardcoded definitions для базовых items:
   - Weapons: `melee_sword`, `pistol_basic`, `rifle_basic`, `dagger`
   - Armor: `armor_military`, `armor_tactical`, `armor_light`, `armor_scrap`
   - Consumables: `health_kit`, `stamina_boost`, `grenade_frag`
-- [ ] Resource: `ItemDefinitions` (HashMap lookup)
+- [x] Resource: `ItemDefinitions` (HashMap lookup)
+- [x] WeaponStatsTemplate composition refactor (removed field duplication)
 
 **Files:**
-- `crates/voidrun_simulation/src/item_system.rs`
-- Update `crates/voidrun_simulation/src/lib.rs` (re-export)
+- ✅ `crates/voidrun_simulation/src/item_system.rs` (561 lines)
+- ✅ `crates/voidrun_simulation/src/lib.rs` (re-exports)
+
+**Tests:** All 4 tests passed
 
 ---
 
-### Phase 2: Equipment Components (1 session)
+### Phase 2: Equipment Components ✅ COMPLETE
+
 **Goal:** Создать новые компоненты, удалить старый Inventory
 
-- [ ] Компоненты:
+- [x] Компоненты:
   - `EquippedWeapons` (4 slots + active_slot)
   - `ConsumableSlots` (5 slots + unlock logic)
   - `Armor` component
   - `Inventory` (general storage)
-- [ ] **УДАЛИТЬ** старый `Inventory` из `inventory.rs`
-- [ ] **УДАЛИТЬ** `ItemStack` enum (заменён на `ItemInstance`)
-- [ ] **УДАЛИТЬ** `ActiveWeaponSlot` (заменён на `EquippedWeapons.active_slot`)
+  - `EnergyShield` (with recharge timer fix)
+- [x] **УДАЛИТЬ** старый `Inventory` из `inventory.rs`
+- [x] **УДАЛИТЬ** `ItemStack` enum (заменён на `ItemInstance`)
+- [x] **УДАЛИТЬ** `ActiveWeaponSlot` (заменён на `EquippedWeapons.active_slot`)
 
 **Files:**
-- `crates/voidrun_simulation/src/components/equipment.rs` (NEW)
-- Delete `crates/voidrun_simulation/src/components/inventory.rs`
-- Update `crates/voidrun_simulation/src/components/mod.rs`
+- ✅ `crates/voidrun_simulation/src/components/equipment.rs` (510 lines)
+- ✅ Deleted `crates/voidrun_simulation/src/components/inventory.rs`
+- ✅ `crates/voidrun_simulation/src/components/mod.rs`
 
-**Breaking changes:**
-- Старый weapon switch код сломается (будет исправлен в Phase 3)
+**Breaking changes fixed:**
+- ✅ Player spawn updated (EquippedWeapons instead of Inventory)
+- ✅ Weapon switch migrated to SwapActiveWeaponIntent
+
+**Tests:** All 6 tests passed
 
 ---
 
-### Phase 3: Equip/Unequip Systems (1 session)
+### Phase 3: Equip/Unequip Systems ✅ COMPLETE
+
 **Goal:** Lifecycle management
 
-- [ ] Events:
+- [x] Events:
   - `EquipWeaponIntent`
   - `UnequipWeaponIntent`
+  - `SwapActiveWeaponIntent`
   - `EquipArmorIntent`
-- [ ] Systems:
+  - `UnequipArmorIntent`
+  - `UseConsumableIntent`
+- [x] Systems:
   - `process_equip_weapon` (ItemInstance → WeaponStats + Attachment)
   - `process_unequip_weapon` (remove components, return to Inventory)
+  - `process_weapon_swap` (smooth swap активного оружия)
   - `process_equip_armor` (Armor + Attachment + unlock consumables)
-- [ ] Fix detach: empty `prefab_path` → detach old weapon
-- [ ] Update `attach_prefabs_main_thread` (detach logic)
+  - `process_unequip_armor` (reverse armor effects)
+  - `process_use_consumable` (health/stamina/grenade)
+- [x] Fix detach: auto-detach old weapon before attaching new
+- [x] Update `attach_prefabs_main_thread` (detach logic for empty prefab_path)
+- [x] **Runtime Fixes:**
+  - Fixed weapon detach not happening on swap
+  - Fixed melee intent generated for ranged weapons
 
 **Files:**
-- `crates/voidrun_simulation/src/equipment/mod.rs` (NEW module)
-- `crates/voidrun_simulation/src/equipment/events.rs`
-- `crates/voidrun_simulation/src/equipment/systems.rs`
-- Update `crates/voidrun_godot/src/systems/attachment_system.rs`
+- ✅ `crates/voidrun_simulation/src/equipment/mod.rs`
+- ✅ `crates/voidrun_simulation/src/equipment/events.rs`
+- ✅ `crates/voidrun_simulation/src/equipment/systems.rs` (335 lines)
+- ✅ `crates/voidrun_godot/src/systems/attachment_system.rs` (auto-detach logic)
+- ✅ `crates/voidrun_godot/src/input/systems.rs` (weapon type routing)
+
+**Additional Work Completed:**
+- ✅ Input system migration to Input Map actions (slot1-9, slot0, input_sprint)
+- ✅ Architecture validation by architecture-validator agent
 
 ---
 
-### Phase 4: Weapon Swap (Smooth Transition) (1 session)
-**Goal:** Smooth holster → draw transitions
+### Phase 4-7: ⏸️ POSTPONED (Player FPS Shooting Priority)
 
-- [ ] Event: `SwapActiveWeaponIntent`
-- [ ] System: `process_weapon_swap`
-  - Smooth transition (holster → detach → attach → draw)
-  - Update `active_slot`
-  - Update WeaponStats + Attachment
-- [ ] **FIX** старый `weapon_switch.rs`:
-  - Заменить на новые события
-  - Удалить старый `process_weapon_switch`
-- [ ] Update input handler:
-  - Hotkeys 1-4 → `SwapActiveWeaponIntent`
+**Reason:** Critical player experience features take priority over inventory polish.
 
-**Files:**
-- Update `crates/voidrun_godot/src/systems/weapon_switch.rs`
-- Update `crates/voidrun_godot/src/input/controller.rs`
+**Decision Date:** 2025-01-19
 
-**Animation (TODO - future):**
+**Current Focus:** 🎯 **Player FPS Shooting System** (see new priority section below)
+
+---
+
+#### Phase 4: Weapon Swap Smooth Animations (POSTPONED)
+
+**Original Goal:** Smooth holster → draw transitions
+
+**Status:** ✅ Core swap functionality works (instant switch), smooth animations deferred
+
+**Remaining Work:**
 - [ ] HolsterAnimation state
 - [ ] DrawAnimation state
 - [ ] Animation keyframes trigger detach/attach
+- [ ] Smooth transition timing integration
+
+**Files affected:**
+- `crates/voidrun_godot/src/systems/weapon_switch.rs` (basic swap working)
+- Future: Animation state machine integration
 
 ---
 
-### Phase 5: Consumables (1 session)
-**Goal:** Hotbar consumables usage
+#### Phase 5: Consumables Hotbar (PARTIALLY COMPLETE)
 
-- [ ] Event: `UseConsumableIntent`
-- [ ] System: `process_use_consumable`
-- [ ] Consumable effects:
-  - `health_kit` → restore Health
-  - `stamina_boost` → restore Stamina
-  - `grenade_frag` → spawn projectile (future)
-- [ ] Armor unlock logic:
-  - Better armor → more slots (2 + bonus)
-- [ ] Update input handler:
-  - Hotkeys 5-9 → `UseConsumableIntent`
+**Original Goal:** Hotbar consumables usage (hotkeys 5-9)
+
+**Status:** 🟡 Core system implemented, input routing pending
+
+**Completed:**
+- [x] Event: `UseConsumableIntent` ✅
+- [x] System: `process_use_consumable` ✅
+- [x] Consumable effects (health, stamina) ✅
+- [x] Armor unlock logic (2 + bonus slots) ✅
+- [x] Input Map actions (`slot5`-`slot9`, `slot0`) ✅
+
+**Remaining Work:**
+- [ ] Wire input controller hotkeys 5-9 → `UseConsumableIntent`
+- [ ] Grenade/projectile consumables (future)
 
 **Files:**
-- `crates/voidrun_simulation/src/equipment/consumables.rs`
-- Update `crates/voidrun_godot/src/input/controller.rs`
+- ✅ `crates/voidrun_simulation/src/equipment/systems.rs` (process_use_consumable)
+- ⏳ `crates/voidrun_godot/src/input/controller.rs` (routing pending)
 
 ---
 
-### Phase 6: AI Integration (1 session)
+#### Phase 6: AI Integration (POSTPONED)
+
 **Goal:** AI используют equipment систему
 
-- [ ] AI weapon switching (tactical decisions):
-  - Distance-based (melee vs ranged)
-  - Ammo-based (switch if out of ammo)
-- [ ] AI consumable usage:
-  - Health kit if HP < 30%
-  - Stamina boost if exhausted
-- [ ] AI equipment configuration:
-  - Faction-based loadouts
-  - Shield models по faction
-- [ ] Testing:
-  - AI правильно переключают оружие
-  - AI используют аптечки
+**Remaining Work:**
+- [ ] AI weapon switching (tactical decisions: distance-based, ammo-based)
+- [ ] AI consumable usage (health kit if HP < 30%, stamina boost)
+- [ ] AI equipment configuration (faction-based loadouts, shield models)
+- [ ] Testing (AI weapon switch, AI consumable usage)
 
 **Files:**
-- `crates/voidrun_simulation/src/ai/equipment_ai.rs` (NEW)
-- Update `crates/voidrun_godot/src/simulation_bridge/spawn.rs` (AI spawn with equipment)
+- `crates/voidrun_simulation/src/ai/equipment_ai.rs` (NEW, TBD)
+- `crates/voidrun_godot/src/simulation_bridge/spawn.rs` (AI spawn update)
 
 ---
 
-### Phase 7: Polish & Testing (1 session)
-**Goal:** Багфиксы, баланс, тестирование
+#### Phase 7: Polish & Testing (POSTPONED)
 
-- [ ] Player spawn с полным equipment:
-  - 2 weapons (меч + пистолет)
-  - Armor (tactical vest)
-  - 2 health kits в consumables
-  - Energy shield
+**Goal:** Багфиксы, баланс, comprehensive testing
+
+**Remaining Work:**
+- [ ] Player spawn с полным equipment (armor, shield, multiple weapons/consumables)
 - [ ] AI spawn с разным equipment по faction
-- [ ] Тестирование:
-  - Weapon swap работает smooth
-  - Detach работает
-  - Consumables работают
-  - AI правильно используют систему
-- [ ] Багфиксы
+- [ ] Comprehensive testing (swap, detach, consumables, AI behavior)
+- [ ] Balance tuning
+- [ ] Bug fixes
 
 **Files:**
-- Update `crates/voidrun_godot/src/simulation_bridge/mod.rs` (player spawn)
-- Update `crates/voidrun_godot/src/simulation_bridge/spawn.rs` (NPC spawn)
+- `crates/voidrun_godot/src/simulation_bridge/mod.rs` (player spawn update)
+- `crates/voidrun_godot/src/simulation_bridge/spawn.rs` (NPC spawn update)
+
+---
+
+### 🎯 NEW PRIORITY: Player FPS Shooting System
+
+**Decision:** Postpone equipment polish to focus on critical FPS gameplay mechanics
+
+**Planning Session:** 2025-01-19 (extensive research + architecture design)
+
+**Key Requirements:**
+- ✅ Procedural sight alignment (Sight Socket Method from Unreal Engine)
+- ✅ Two aim modes: Hip Fire (dynamic raycast) + ADS (sight on camera ray)
+- ✅ Manual lerp transitions (NOT keyframe animations - full procedural control)
+- ✅ Bullets spawn from barrel (BulletSpawn node), NOT camera center
+- ✅ RMB = Toggle ADS для ВСЕХ оружий (including melee for precise strikes)
+- ✅ CameraLine debug visualization (hardcoded visible=false)
+
+**Architecture Decisions:**
+1. **Sight Socket Method:** Each weapon prefab has `SightSocket` node (artist-configurable)
+2. **Manual Lerp:** Smooth transitions via procedural interpolation (0.3s ease-out-cubic)
+3. **Continuous Update:** In ADS mode, hand position updates EVERY frame (camera can move!)
+4. **No AnimationTree:** Avoid keyframe animation conflicts, full procedural control
+
+**Implementation Phases:**
+1. ⏳ Phase 1: Core Systems (AimMode component, helper functions)
+2. ⏳ Phase 2: RMB Toggle + Transition Logic (smooth lerp Hip↔ADS)
+3. ⏳ Phase 3: Bullet Spawn Fix (from barrel to raycast hit point)
+4. ⏳ Phase 4: System Registration (correct Update schedule order)
+5. ⏳ Phase 5: Add SightSocket to weapon prefabs
+
+**Documentation:**
+- Detailed architecture plan in conversation history (2025-01-19)
+- Implementation: `voidrun_godot/src/systems/player_shooting.rs` (TBD)
+- Component: `voidrun_simulation/src/components/player_shooting.rs` (TBD)
+
+**Estimated Time:** 6-8 hours (1-2 sessions)
+
+**Resume Equipment Phases 4-7 after:** FPS Shooting System complete and tested
 
 ---
 

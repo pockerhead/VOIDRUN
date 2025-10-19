@@ -112,16 +112,16 @@ impl SimulationBridge {
         let mut commands = world.commands();
 
         spawn_melee_npc(&mut commands, (0.0, 0.0, 3.0), 1, 60);
-        spawn_melee_npc(&mut commands, (25.0, 0.0, 6.0), 1, 60);
-        spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
+        // spawn_melee_npc(&mut commands, (25.0, 0.0, 6.0), 1, 60);
+        // spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
 
-        spawn_melee_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
-        spawn_melee_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 60);
-        spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
+        // spawn_melee_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
+        // spawn_melee_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 60);
+        // spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
 
-        spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
-        spawn_melee_npc(&mut commands, (2.0, 0.0, -5.0), 3, 60);
-        spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
+        // spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
+        // spawn_melee_npc(&mut commands, (2.0, 0.0, -5.0), 3, 60);
+        // spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
 
         voidrun_simulation::log("✅ NPCs spawned successfully (9 NPCs, 3 factions)");
     }
@@ -183,6 +183,8 @@ impl SimulationBridge {
                 },
                 voidrun_simulation::ConsumableSlots::default(), // Базовые 2 слота
                 voidrun_simulation::Inventory::empty(), // Пустой инвентарь пока
+                // Player shooting components
+                voidrun_simulation::components::player_shooting::AimMode::default(), // Hip Fire по умолчанию
             ));
 
             player_entity

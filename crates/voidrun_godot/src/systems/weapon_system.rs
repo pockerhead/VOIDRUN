@@ -217,11 +217,27 @@ pub fn process_ranged_attack_intents_main_thread(
             continue;
         };
 
-        // Получаем target node
-        let Some(target_node) = visuals.visuals.get(&intent.target).cloned() else {
+        // Player FPS shooting (no target) → skip validation, emit WeaponFired immediately
+        let Some(target_entity) = intent.target else {
+            fire_events.write(WeaponFired {
+                shooter: intent.shooter,
+                target: None,
+                damage: intent.damage,
+                speed: intent.speed,
+                shooter_position: {
+                    let pos = shooter_node.get_global_position();
+                    Vec3::new(pos.x, pos.y, pos.z)
+                },
+                hearing_range: intent.hearing_range,
+            });
+            continue;
+        };
+
+        // AI shooting (has target) → validate distance + LOS
+        let Some(target_node) = visuals.visuals.get(&target_entity).cloned() else {
             voidrun_simulation::log(&format!(
                 "Weapon intent rejected: target {:?} visual not found",
-                intent.target
+                target_entity
             ));
             continue;
         };
@@ -234,7 +250,7 @@ pub fn process_ranged_attack_intents_main_thread(
         if distance > intent.max_range {
             voidrun_simulation::log(&format!(
                 "Weapon intent rejected: distance {:.1}m > max_range {:.1}m (shooter {:?} → target {:?})",
-                distance, intent.max_range, intent.shooter, intent.target
+                distance, intent.max_range, intent.shooter, target_entity
             ));
             continue;
         }
@@ -242,7 +258,7 @@ pub fn process_ranged_attack_intents_main_thread(
         if distance < 0.5 {
             voidrun_simulation::log(&format!(
                 "Weapon intent rejected: too close {:.1}m (shooter {:?} → target {:?})",
-                distance, intent.shooter, intent.target
+                distance, intent.shooter, target_entity
             ));
             continue;
         }
@@ -284,7 +300,7 @@ pub fn process_ranged_attack_intents_main_thread(
             // Нет коллизий → странно (target должен быть виден), НЕ стреляем
             voidrun_simulation::log(&format!(
                 "🚫 LOS CHECK FAILED: no raycast hit (shooter {:?} → target {:?}, distance {:.1}m) - possible raycast bug or target out of range",
-                intent.shooter, intent.target, distance
+                intent.shooter, target_entity, distance
             ));
             continue;
         }
@@ -316,7 +332,7 @@ pub fn process_ranged_attack_intents_main_thread(
                 // LOS blocked → отклоняем fire intent (movement_system обработает)
                 voidrun_simulation::log(&format!(
                     "🚫 LOS BLOCKED BY OBSTACLE: shooter {:?} → target {:?} (obstacle: {:?}) - fire intent rejected",
-                    intent.shooter, intent.target, collider_id
+                    intent.shooter, target_entity, collider_id
                 ));
                 continue;
             };
@@ -338,7 +354,7 @@ pub fn process_ranged_attack_intents_main_thread(
                 // Союзник на линии огня → НЕ стреляем
                 voidrun_simulation::log(&format!(
                     "🚫 FRIENDLY FIRE RISK: shooter {:?} (faction {}) won't shoot through ally {:?} (faction {}) at target {:?}",
-                    intent.shooter, shooter_actor.faction_id, collider_entity, collider_actor.faction_id, intent.target
+                    intent.shooter, shooter_actor.faction_id, collider_entity, collider_actor.faction_id, target_entity
                 ));
                 continue;
             }
@@ -346,7 +362,7 @@ pub fn process_ranged_attack_intents_main_thread(
             // Враг на линии огня → НЕ стреляем (target switching обработает update_combat_targets_main_thread)
             voidrun_simulation::log(&format!(
                 "🚫 LOS BLOCKED BY ENEMY: shooter {:?} → target {:?} blocked by enemy {:?} (faction {})",
-                intent.shooter, intent.target, collider_entity, collider_actor.faction_id
+                intent.shooter, target_entity, collider_entity, collider_actor.faction_id
             ));
             continue;
         }
@@ -354,7 +370,7 @@ pub fn process_ranged_attack_intents_main_thread(
         // ✅ All tactical validations passed → генерируем WeaponFired
         fire_events.write(WeaponFired {
             shooter: intent.shooter,
-            target: intent.target,
+            target: Some(target_entity),
             damage: intent.damage,
             speed: intent.speed,
             shooter_position: Vec3::new(shooter_pos.x, shooter_pos.y, shooter_pos.z),  // Godot Vector3 → Bevy Vec3
@@ -363,9 +379,55 @@ pub fn process_ranged_attack_intents_main_thread(
 
         voidrun_simulation::log(&format!(
             "Weapon intent APPROVED: shooter {:?} → target {:?} (distance: {:.1}m)",
-            intent.shooter, intent.target, distance
+            intent.shooter, target_entity, distance
         ));
     }
+}
+
+/// Helper: Find bullet spawn position (BulletSpawn → weapon root → RightHand → actor)
+///
+/// Returns: (spawn_position, weapon_node_for_direction)
+fn find_bullet_spawn_position(actor_node: &Gd<Node3D>) -> (Vector3, Option<Gd<Node3D>>) {
+    // Try 1: RightHandAttachment (attachment point)
+    let Some(weapon_attachment) = actor_node.try_get_node_as::<Node3D>("%RightHandAttachment") else {
+        // Fallback 1: RightHand
+        if let Some(right_hand) = actor_node.try_get_node_as::<Node3D>("RightHand") {
+            voidrun_simulation::log("⚠️ WeaponAttachment not found, using RightHand");
+            return (right_hand.get_global_position(), Some(right_hand));
+        }
+
+        // Fallback 2: Actor position
+        voidrun_simulation::log("⚠️ RightHand not found, using actor position");
+        return (actor_node.get_global_position(), None);
+    };
+
+    // Try 2: Get weapon prefab (first child of attachment)
+    let weapon_prefab = if weapon_attachment.get_child_count() > 0 {
+        weapon_attachment.get_child(0).and_then(|node| node.try_cast::<Node3D>().ok())
+    } else {
+        None
+    };
+
+    let Some(weapon_prefab) = weapon_prefab else {
+        voidrun_simulation::log("⚠️ No weapon attached to RightHandAttachment");
+        return (weapon_attachment.get_global_position(), Some(weapon_attachment));
+    };
+
+    // Try 3: Find BulletSpawn via unique name
+    if let Some(bullet_spawn_node) = weapon_prefab.get_node_or_null("%BulletSpawn") {
+        if let Ok(bullet_spawn) = bullet_spawn_node.try_cast::<Node3D>() {
+            return (bullet_spawn.get_global_position(), Some(bullet_spawn));
+        }
+    }
+
+    // Try 4: Legacy fallback - recursive search
+    if let Some(bullet_spawn) = find_node_recursive(&weapon_attachment, "BulletSpawn") {
+        return (bullet_spawn.get_global_position(), Some(bullet_spawn));
+    }
+
+    // Fallback 5: Weapon root position
+    voidrun_simulation::log("⚠️ BulletSpawn not found (add unique_name_in_owner to weapon prefab)");
+    (weapon_prefab.get_global_position(), Some(weapon_prefab))
 }
 
 /// System: Process WeaponFired events → spawn Godot projectile
@@ -385,36 +447,29 @@ pub fn weapon_fire_main_thread(
             continue;
         };
 
-        // 1. Находим BulletSpawn node для spawn_position
-        let (spawn_position, weapon_node) = if let Some(weapon_attachment) = actor_node.try_get_node_as::<Node3D>("%RightHandAttachment") {
-            // Рекурсивно ищем BulletSpawn внутри WeaponAttachment
-            if let Some(bullet_spawn) = find_node_recursive(&weapon_attachment, "BulletSpawn") {
-                (bullet_spawn.get_global_position(), Some(bullet_spawn))
-            } else {
-                voidrun_simulation::log("BulletSpawn not found, using WeaponAttachment");
-                (weapon_attachment.get_global_position(), Some(weapon_attachment))
-            }
-        } else if let Some(right_hand) = actor_node.try_get_node_as::<Node3D>("RightHand") {
-            voidrun_simulation::log("WeaponAttachment not found, using RightHand");
-            (right_hand.get_global_position(), Some(right_hand))
-        } else {
-            voidrun_simulation::log("RightHand not found, using actor position");
-            (actor_node.get_global_position(), None)
-        };
+        // 1. Находим BulletSpawn node для spawn_position (Golden Path helper)
+        let (spawn_position, weapon_node) = find_bullet_spawn_position(actor_node);
 
         // 2. Рассчитываем direction из weapon bone rotation
         let direction = if let Some(weapon) = weapon_node {
             // Берём +Z axis weapon bone (наша модель смотрит в +Z, не -Z как Godot convention)
             let global_transform = weapon.get_global_transform();
-            global_transform.basis.col_c() // basis.z = forward для нашей модели
+            let dir = global_transform.basis.col_c();
+            voidrun_simulation::log(&format!("🔫 Weapon direction: {:?}", dir));
+            dir // basis.z = forward для нашей модели
         } else {
-            // Fallback: направление от shooter к target (Godot Transform — не ECS!)
-            if let Some(target_node) = visuals.visuals.get(&event.target) {
-                let shooter_pos = actor_node.get_global_position();
-                let target_pos = target_node.get_global_position();
-                (target_pos - shooter_pos).normalized()
+            // Fallback: направление от shooter к target (если есть target)
+            if let Some(target_entity) = event.target {
+                if let Some(target_node) = visuals.visuals.get(&target_entity) {
+                    let shooter_pos = actor_node.get_global_position();
+                    let target_pos = target_node.get_global_position();
+                    (target_pos - shooter_pos).normalized()
+                } else {
+                    voidrun_simulation::log("Target visual not found, using default forward");
+                    Vector3::new(0.0, 0.0, -1.0) // Default -Z forward
+                }
             } else {
-                voidrun_simulation::log("Target visual not found, using default forward");
+                // No target (player FPS) → default forward
                 Vector3::new(0.0, 0.0, -1.0) // Default -Z forward
             }
         };

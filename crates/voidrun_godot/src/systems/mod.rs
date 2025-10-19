@@ -8,6 +8,7 @@ pub mod movement_system;
 pub mod ai_melee_combat_decision;
 pub mod player_camera_system;
 pub mod weapon_switch;
+pub mod player_shooting;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
 pub use vision_system::VisionTracking;
@@ -69,6 +70,12 @@ pub use player_camera_system::{
 pub use weapon_switch::{
     process_player_weapon_switch,
     // process_weapon_switch удалён — теперь в voidrun_simulation::EquipmentPlugin
+};
+
+pub use player_shooting::{
+    process_ads_toggle,
+    update_ads_position_transition,
+    player_hip_fire_aim,
 };
 
 /// Godot delta time (обновляется каждый frame в SimulationBridge::process)

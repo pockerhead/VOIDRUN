@@ -16,7 +16,8 @@
 use bevy::prelude::*;
 use godot::prelude::*;
 use voidrun_simulation::components::{ActiveCamera, CameraMode, JumpIntent, Player};
-use voidrun_simulation::combat::{MeleeAttackIntent, MeleeAttackState, ParryIntent, ParryState, WeaponStats};
+use voidrun_simulation::components::player_shooting::ToggleADSIntent;
+use voidrun_simulation::combat::{MeleeAttackIntent, MeleeAttackState, ParryIntent, ParryState, WeaponStats, WeaponFireIntent};
 
 use super::events::PlayerInputEvent;
 use crate::systems::VisualRegistry;
@@ -130,18 +131,22 @@ pub fn process_player_input(
     player_body.move_and_slide();
 }
 
-/// Player combat input system - обрабатывает attack/parry input
+/// Player combat input system - обрабатывает primary/secondary actions
 ///
 /// # Архитектура
 /// - Читает: PlayerInputEvent
-/// - Пишет: MeleeAttackIntent (attack), ParryIntent (parry)
+/// - Пишет: MeleeAttackIntent, ParryIntent, ToggleADSIntent
 /// - Query: With<Player>
 ///
-/// # Combat
-/// - LMB → MeleeAttackIntent (area-based collision detection)
-/// - RMB → ParryIntent (VisionCone-based target detection + mutual facing check)
+/// # Actions
+/// - **Primary action (LMB):**
+///   - Melee weapon → MeleeAttackIntent
+///   - Ranged weapon → RangedAttackIntent (TODO: Phase 3)
+/// - **Secondary action (RMB):**
+///   - Melee weapon → ParryIntent (VisionCone-based parry)
+///   - Ranged weapon → ToggleADSIntent (ADS toggle)
 ///
-/// # Parry Detection
+/// # Parry Detection (Melee only)
 /// - Uses player VisionCone to find visible enemies
 /// - Checks `actors_facing_each_other()` (mutual facing)
 /// - Requires attacker in Windup phase
@@ -150,6 +155,8 @@ pub fn player_combat_input(
     mut input_events: EventReader<PlayerInputEvent>,
     mut attack_events: EventWriter<MeleeAttackIntent>,
     mut parry_events: EventWriter<ParryIntent>,
+    mut ads_toggle_events: EventWriter<ToggleADSIntent>,
+    mut fire_intent_events: EventWriter<WeaponFireIntent>,
     player_query: Query<Entity, With<Player>>,
     attack_states: Query<(Entity, &MeleeAttackState)>,
     parry_states: Query<&ParryState>,
@@ -162,13 +169,13 @@ pub fn player_combat_input(
     };
 
     for input in input_events.read() {
-        // LMB → Attack (melee or ranged depending on weapon type)
-        if input.attack {
-            // Check weapon type
-            let Ok(weapon_stats) = weapons.get(player_entity) else {
-                continue;
-            };
+        // Get weapon type (needed for context-dependent actions)
+        let Ok(weapon_stats) = weapons.get(player_entity) else {
+            continue;
+        };
 
+        // PRIMARY ACTION (LMB) - Attack/Fire
+        if input.primary_action {
             if weapon_stats.is_melee() {
                 // Melee attack (area-based, no target needed)
                 attack_events.write(MeleeAttackIntent {
@@ -176,48 +183,90 @@ pub fn player_combat_input(
                     attack_type: voidrun_simulation::combat::MeleeAttackType::Normal,
                 });
             } else if weapon_stats.is_ranged() {
-                // TODO: Ranged attack (emit RangedAttackIntent)
-                voidrun_simulation::log("🔫 Ranged attack not implemented yet (Phase 5)");
+                // Ranged attack: emit WeaponFireIntent (no target, direction = weapon forward)
+                fire_intent_events.write(WeaponFireIntent {
+                    shooter: player_entity,
+                    target: None, // Player FPS shooting (direction from weapon/camera)
+                    damage: weapon_stats.base_damage,
+                    speed: weapon_stats.projectile_speed,
+                    max_range: weapon_stats.range,
+                    hearing_range: weapon_stats.hearing_range,
+                });
             }
         }
 
-        // RMB → Parry (always allowed - targeted or idle)
-        if input.parry {
-            // Guard 1: Already parrying
-            if parry_states.contains(player_entity) {
-                voidrun_simulation::log("⚠️ Player already parrying");
-                continue;
-            }
-
-            // Guard 2: Attacking (cannot parry during attack)
-            if attack_states.iter().any(|(e, _)| e == player_entity) {
-                voidrun_simulation::log("⚠️ Cannot parry while attacking");
-                continue;
-            }
-
-            // Find closest attacker in vision (optional)
-            let attacker = find_closest_attacker_in_vision(
-                player_entity,
-                &attack_states,
-                &weapons,
-                &visuals,
-            )
-            .map(|(entity, _windup)| entity); // Take only Entity, ignore windup
-
-            // ALWAYS generate ParryIntent (даже если нет attacker)
-            parry_events.write(ParryIntent {
-                defender: player_entity,
-                attacker, // Some(entity) or None
-                expected_windup_duration: 0.0, // Unused
-            });
-
-            // Log based on parry type
-            if let Some(target) = attacker {
-                voidrun_simulation::log(&format!("🛡️ Player parry → target {:?}", target));
-            } else {
-                voidrun_simulation::log("🛡️ Player parry (defensive/idle)");
+        // SECONDARY ACTION (RMB) - Parry/ADS
+        if input.secondary_action {
+            if weapon_stats.is_melee() {
+                // Melee weapon → Parry
+                handle_parry_input(
+                    player_entity,
+                    &mut parry_events,
+                    &attack_states,
+                    &parry_states,
+                    &weapons,
+                    &visuals,
+                );
+            } else if weapon_stats.is_ranged() {
+                // Ranged weapon → Toggle ADS
+                ads_toggle_events.write(ToggleADSIntent {
+                    entity: player_entity,
+                });
+                voidrun_simulation::log("🎯 Toggle ADS");
             }
         }
+    }
+}
+
+// ============================================================================
+// Helper Functions: Parry Input
+// ============================================================================
+
+/// Handle parry input for melee weapons
+///
+/// Checks if parry is allowed (not already parrying, not attacking)
+/// and finds closest attacker in vision cone.
+fn handle_parry_input(
+    player_entity: Entity,
+    parry_events: &mut EventWriter<ParryIntent>,
+    attack_states: &Query<(Entity, &MeleeAttackState)>,
+    parry_states: &Query<&ParryState>,
+    weapons: &Query<&WeaponStats>,
+    visuals: &NonSend<VisualRegistry>,
+) {
+    // Guard 1: Already parrying
+    if parry_states.contains(player_entity) {
+        voidrun_simulation::log("⚠️ Player already parrying");
+        return;
+    }
+
+    // Guard 2: Attacking (cannot parry during attack)
+    if attack_states.iter().any(|(e, _)| e == player_entity) {
+        voidrun_simulation::log("⚠️ Cannot parry while attacking");
+        return;
+    }
+
+    // Find closest attacker in vision (optional)
+    let attacker = find_closest_attacker_in_vision(
+        player_entity,
+        attack_states,
+        weapons,
+        visuals,
+    )
+    .map(|(entity, _windup)| entity); // Take only Entity, ignore windup
+
+    // ALWAYS generate ParryIntent (даже если нет attacker)
+    parry_events.write(ParryIntent {
+        defender: player_entity,
+        attacker, // Some(entity) or None
+        expected_windup_duration: 0.0, // Unused
+    });
+
+    // Log based on parry type
+    if let Some(target) = attacker {
+        voidrun_simulation::log(&format!("🛡️ Player parry → target {:?}", target));
+    } else {
+        voidrun_simulation::log("🛡️ Player parry (defensive/idle)");
     }
 }
 

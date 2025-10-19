@@ -15,7 +15,9 @@ unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06686258, -0.20968199)
 
 [node name="CameraLine" type="MeshInstance3D" parent="Actor/Head/CameraPivot"]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, -2.2747152)
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, -0.7910671)
+visible = false
 mesh = SubResource("CapsuleMesh_sxfff")
 
 [editable path="Actor"]
