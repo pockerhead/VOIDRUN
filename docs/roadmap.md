@@ -153,8 +153,24 @@
 - ✅ `los_helpers.rs` (raycast utilities)
 - ✅ `avoidance_receiver.rs` (NavigationAgent3D velocity_computed signal)
 
+**✅ Player Control РАБОТАЕТ (2025-10-24):**
+- ✅ FPS camera (mouse look: yaw body, pitch CameraPivot)
+- ✅ Camera toggle [V] key (FPS ↔ RTS)
+- ✅ WASD movement (camera-relative через Actor basis)
+- ✅ Sprint (Shift: 6.0 м/с vs 3.0 м/с), Jump (Space)
+- ✅ Combat input (LMB attack, RMB parry/ADS context-dependent)
+- ✅ ADS system (Hip Fire ↔ ADS smooth transitions 0.3s)
+- ✅ Weapon switch (Digit1-9 slots)
+- ✅ PlayerInputController (Godot Node → ECS events)
+- ✅ Gravity system для player
+
+**📋 Player Polish (НЕ ГОТОВО):**
+- ❌ Player HUD (health/stamina/ammo UI)
+- ❌ Crosshair + damage feedback visuals
+- ❌ Auto-spawn на старте сцены (сейчас через кнопку)
+- ❌ Player death handling (respawn/game over)
+
 **📋 Что НЕ НАЧАТО:**
-- ⏸️ Player control (можем отложить)
 - ⏸️ Shield system (design doc готов, code нет)
 - ⏸️ Block/Dodge systems (парирование работает, блок/уклонение отложены)
 - ⏸️ Chunk system (можем отложить)
@@ -217,9 +233,7 @@
 - [ ] Balance tests (симуляция NPC боёв)
 
 **⏸️ ОТЛОЖЕНО (можем сделать позже):**
-- [ ] Player control (WASD, mouse attack)
-- [ ] First-person camera (basic mode)
-- [ ] Player HUD (health/stamina UI)
+- [ ] Player HUD polish (crosshair, damage feedback, death screen)
 - [ ] Block system (блокирование с stamina drain, 70% damage reduction)
 - [ ] Dodge system (i-frames, dash movement)
 - [ ] Chunk system + procgen
@@ -493,26 +507,199 @@
 
 ## 📋 Будущие фазы (После Vertical Slice)
 
-### Фаза 5: Space Flight & Combat
+### Фаза 5: Campaign & Narrative Systems (НОВАЯ ПРИОРИТЕТНАЯ ФАЗА)
+
+**Срок:** 6-10 недель
+**Статус:** 📋 Planned (design docs готовы)
+**Философия:** Sandbox-first development
+
+**📋 Детальные планы:**
+- [Campaign & Sandbox System Design](design/campaign-sandbox-system.md)
+- [Procedural Narrative System](design/procedural-narrative.md)
+- [Endgame Systems](design/endgame-systems.md)
+
+#### Phase 5.1: Core Sandbox Systems (Foundation) — 2-3 недели
+
+**Milestone:** World generation с deep configuration работает
+
+**Задачи:**
+
+1. **World Generation (seed-based):**
+   - [ ] ChunkCoord-based world (32x32m chunks, см. ADR-006)
+   - [ ] Faction placement (procedural)
+   - [ ] Economy initialization (supply/demand)
+   - [ ] Procedural NPC population
+
+2. **Configuration System:**
+   - [ ] WorldConfig struct (26+ параметров)
+   - [ ] CampaignConfig (per campaign type)
+   - [ ] Seed encoding/decoding (VR-SEED-CAMPAIGN-HASH format)
+   - [ ] Presets system (quick start templates)
+
+3. **Freeplay Mode:**
+   - [ ] No campaign objectives
+   - [ ] All emergent systems active
+   - [ ] Sandbox tools (exploration, trading)
+
+**Checkpoint:**
+- ✅ Можно создать custom seed с любыми параметрами
+- ✅ World генерируется детерминистично (один seed = один мир)
+- ✅ Freeplay mode работает (можно играть без campaign)
+
+---
+
+#### Phase 5.2: Campaign Framework (Mechanics) — 2-3 недели
+
+**Milestone:** Три кампании механически работают (без hand-crafted content)
+
+**Задачи:**
+
+1. **Campaign State Machine:**
+   - [ ] CampaignState enum (LastHope / BloodDebt / FinalDawn / Endgame / Freeplay)
+   - [ ] Act tracking для кампаний
+   - [ ] Objective system
+   - [ ] Win condition evaluation
+
+2. **Procedural Target Generation (Revenge Arc):**
+   - [ ] RevengeTarget struct
+   - [ ] Target chain generation (3-10 targets от FieldAgent до Leader)
+   - [ ] Betrayal context generation (background × severity matrix)
+   - [ ] Intel requirements system
+
+3. **Timer Systems:**
+   - [ ] Galactic Threat time limit (optional)
+   - [ ] Final Dawn death timer (degradation, extensions)
+
+4. **Quest System:**
+   - [ ] ProceduralQuest struct
+   - [ ] Quest templates (Escort, Eliminate, Trade, Investigate, Rescue, Defend)
+   - [ ] Quest generation (world state-based)
+   - [ ] Dynamic events (pirate raids, economic crisis, faction wars)
+
+**Checkpoint:**
+- ✅ Можно начать любую из трёх кампаний
+- ✅ Revenge Arc генерирует chain of targets
+- ✅ Final Dawn death timer работает (degradation, permadeath)
+- ✅ Procedural quests генерируются бесконечно
+
+---
+
+#### Phase 5.3: Endgame Systems — 2-3 недели
+
+**Milestone:** Post-campaign freeplay работает
+
+**Задачи:**
+
+1. **Emergent Systems:**
+   - [ ] Faction war simulation (autonomous warfare)
+   - [ ] Economic simulation (supply/demand, price volatility)
+   - [ ] Reputation propagation (gossip system)
+   - [ ] Dynamic events (random encounters)
+
+2. **Faction Management (Blood Debt - Take Control):**
+   - [ ] FactionLeadership struct
+   - [ ] Daily income/expenses
+   - [ ] Stability system (rebellions, coups, corruption)
+   - [ ] Lieutenant management
+   - [ ] Territory expansion
+
+3. **Procedural Quest System:**
+   - [ ] Radiant quests (см. procedural-narrative.md)
+   - [ ] World state awareness (post-war vs civil war vs stable)
+   - [ ] Reward scaling
+
+**Checkpoint:**
+- ✅ После завершения кампании открывается endgame freeplay
+- ✅ Фракции автономно воюют за территории
+- ✅ Faction management работает (Take Control path)
+- ✅ Procedural quests бесконечны, разнообразны
+
+---
+
+#### Phase 5.4: Content & Polish (Story Mode) — 2-4 недели
+
+**Milestone:** Три curated campaigns с hand-crafted content готовы
+
+**Задачи:**
+
+1. **Predefined Seeds:**
+   - [ ] Seed "Invasion" (The Last Hope) — alien threat, wartime economy
+   - [ ] Seed "Betrayal" (Blood Debt) — MegaCorp dominance, underworld
+   - [ ] Seed "Twilight" (Final Dawn) — post-crisis, depression economy
+
+2. **Hand-Crafted NPCs:**
+   - [ ] Key NPCs для каждой кампании (faction leaders, targets, allies)
+   - [ ] Unique dialogues
+   - [ ] Personal quests
+
+3. **Hand-Crafted Post-Game Questlines:**
+   - [ ] The Last Hope: "The Aftermath", "War Crimes Tribunal", "New Threat" (5-10 missions total)
+   - [ ] Blood Debt (Take Control): "The Usurper", "Old Debts", "Alliance or War"
+   - [ ] Blood Debt (Walk Away): "Ghost of the Past", "The Aftermath", "New Purpose"
+
+4. **Community Features:**
+   - [ ] Seed sharing UI (import/export codes)
+   - [ ] Workshop integration (optional)
+   - [ ] Leaderboards (optional)
+
+**Checkpoint:**
+- ✅ Story Mode полностью играбелен (3 кампании начало-до-конца)
+- ✅ Hand-crafted content добавляет narrative depth
+- ✅ Seed sharing работает (можно делиться custom worlds)
+
+---
+
+**Deliverables (Фаза 5 полностью):**
+
+**Core Systems:**
+- `voidrun_simulation/src/campaign/` — state machine, objectives
+- `voidrun_simulation/src/world/config.rs` — WorldConfig, seed system
+- `voidrun_simulation/src/narrative/procedural.rs` — target/quest generation
+- `voidrun_simulation/src/endgame/` — faction management, emergent systems
+
+**Content:**
+- `data/campaigns/` — predefined seeds, NPC definitions
+- `data/quests/` — hand-crafted questlines
+- `docs/design/` — campaign system design docs (✅ готовы)
+
+**UI:**
+- `voidrun_godot/src/ui/campaign_menu.rs` — campaign selection
+- `voidrun_godot/src/ui/world_config.rs` — sandbox configuration UI
+- `voidrun_godot/src/ui/seed_sharing.rs` — import/export
+
+---
+
+### Фаза 6: Space Flight & Combat
+
+**Срок:** 3-4 недели
+**Статус:** 🔜 После Фазы 5
+
 - 6DOF полет
 - Dogfight 1v1
 - Transitions планета ↔ космос
 
-### Фаза 6: Quests & Narrative
-- Event-driven FSM для квестов
-- Флаги и прогресс
-- Procedural quest generation
+---
 
 ### Фаза 7: Full Godot Integration
-- Custom bridge (вместо godot-bevy)
+
+**Срок:** 2-3 недели
+**Статус:** 🔜 После основных систем
+
+- Custom bridge optimization
 - Полноценные модели и анимации
 - UI/UX polish
 
+---
+
 ### Фаза 8: Content Expansion
+
+**Срок:** Ongoing (постоянная разработка)
+**Статус:** Параллельно с другими фазами
+
 - 100+ items
 - 50+ NPC archetypes
 - 20+ ship types
-- Procedural generation
+- Procedural biomes/dungeons
 
 ---
 
