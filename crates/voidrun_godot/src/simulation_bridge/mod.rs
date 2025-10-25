@@ -62,12 +62,10 @@ impl INode3D for SimulationBridge {
         app.insert_non_send_resource(VisualRegistry::default());
         app.insert_non_send_resource(AttachmentRegistry::default());
         app.insert_non_send_resource(VisionTracking::default());
+        app.insert_non_send_resource(crate::projectile_registry::GodotProjectileRegistry::default());
         app.insert_non_send_resource(SceneRoot {
             node: self.base().clone().upcast::<Node3D>(),
         });
-
-        // 4.2 Инициализируем static queues для Godot → ECS events
-        crate::projectile::init_projectile_hit_queue();
 
         // 4.3 Регистрируем custom schedules + timer systems
         systems_setup::register_schedules(&mut app);
@@ -111,17 +109,17 @@ impl SimulationBridge {
         let world = app.world_mut();
         let mut commands = world.commands();
 
-        spawn_melee_npc(&mut commands, (0.0, 0.0, 3.0), 1, 60);
+        // spawn_melee_npc(&mut commands, (0.0, 0.0, 3.0), 1, 60);
         spawn_test_npc(&mut commands, (25.0, 0.0, 6.0), 1, 60);
-        spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
+        // spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
 
-        spawn_melee_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
+        // spawn_melee_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
         spawn_test_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 60);
-        spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
+        // spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
 
-        spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
+        // spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
         spawn_test_npc(&mut commands, (2.0, 0.0, -5.0), 3, 60);
-        spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
+        // spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
 
         voidrun_simulation::log("✅ NPCs spawned successfully (9 NPCs, 3 factions)");
     }

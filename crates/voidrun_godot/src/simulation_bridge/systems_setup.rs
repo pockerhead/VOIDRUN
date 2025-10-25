@@ -24,12 +24,12 @@ pub fn register_systems(app: &mut App) {
         player_mouse_look,    // Mouse look (FPS only)
         poll_melee_hitboxes_main_thread,
         poll_vision_cones_main_thread,
-        process_godot_projectile_hits,
         process_melee_attack_intents_main_thread,
         process_movement_commands_main_thread,
         process_ranged_attack_intents_main_thread,
         process_player_weapon_switch, // Weapon switch (Godot input → SwapActiveWeaponIntent)
         // process_weapon_switch удалён — в voidrun_simulation::EquipmentPlugin
+        projectile_collision_system_main_thread, // NEW: Event-driven projectile collision processing
         setup_player_camera,           // Setup player camera при spawn
         spawn_actor_visuals_main_thread,
         sync_ai_state_labels_main_thread,
@@ -113,7 +113,7 @@ pub fn register_systems(app: &mut App) {
             weapon_aim_main_thread,            // Aim RightHand at target
             process_ranged_attack_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
             weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
-            process_godot_projectile_hits,           // Godot queue → ECS ProjectileHit events
+            projectile_collision_system_main_thread, // NEW: Process projectile collisions (event-driven)
             ai_melee_combat_decision_main_thread, // Unified AI melee combat decision (attack/parry/wait)
             process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
             execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox

@@ -439,6 +439,7 @@ pub fn weapon_fire_main_thread(
     mut fire_events: EventReader<WeaponFired>,
     visuals: NonSend<VisualRegistry>,
     scene_root: NonSend<crate::systems::SceneRoot>,
+    mut registry: NonSendMut<crate::projectile_registry::GodotProjectileRegistry>,
 ) {
     for event in fire_events.read() {
         // Находим actor node
@@ -482,6 +483,7 @@ pub fn weapon_fire_main_thread(
             event.speed,
             event.damage,
             &scene_root.node,
+            &mut registry,
         );
 
         voidrun_simulation::log(&format!(
@@ -499,6 +501,7 @@ fn spawn_godot_projectile(
     speed: f32,
     damage: u32,
     scene_root: &Gd<Node3D>,
+    registry: &mut crate::projectile_registry::GodotProjectileRegistry,
 ) {
     use crate::projectile::GodotProjectile;
 
@@ -551,24 +554,83 @@ fn spawn_godot_projectile(
 
     projectile.add_child(&collision.upcast::<Node>());
 
-    // 5. Добавляем в сцену (Godot автоматически вызовет _physics_process)
+    // 5. Register projectile in registry (BEFORE adding to scene)
+    registry.register(projectile.clone());
+
+    // 6. Добавляем в сцену (Godot автоматически вызовет _physics_process)
     scene_root.clone().upcast::<Node>().add_child(&projectile.upcast::<Node>());
 }
 
 // ❌ projectile_physics удалена — GodotProjectile::physics_process обрабатывает всё
 
-/// System: Обработка ProjectileHit событий из Godot queue
+/// System: Process projectile collisions (Godot → ECS)
 ///
-/// Godot projectiles пушат collision events в static queue,
-/// эта система читает их и отправляет в ECS EventWriter
-pub fn process_godot_projectile_hits(
+/// Reads collision info from GodotProjectile nodes.
+/// Generates ProjectileHit events для ECS damage processing.
+/// Despawns projectiles after processing.
+///
+/// **Frequency:** Every frame (60 Hz)
+pub fn projectile_collision_system_main_thread(
+    mut registry: NonSendMut<crate::projectile_registry::GodotProjectileRegistry>,
+    visuals: NonSend<VisualRegistry>,
     mut projectile_hit_events: EventWriter<voidrun_simulation::combat::ProjectileHit>,
 ) {
-    // Забираем все hit events из Godot queue
-    let hits = crate::projectile::take_projectile_hits();
+    // Cleanup destroyed projectiles first
+    registry.cleanup_destroyed();
 
-    for hit in hits {
-        projectile_hit_events.write(hit);
+    // Process collisions
+    let mut to_remove = Vec::new();
+
+    for (instance_id, mut projectile) in registry.projectiles.iter_mut() {
+        // Check if projectile has collision info
+        let Some(collision_info) = projectile.bind().collision_info.clone() else {
+            continue;  // No collision yet
+        };
+
+        // Reverse lookup: InstanceId → Entity
+        let Some(&target_entity) = visuals.node_to_entity.get(&collision_info.target_instance_id) else {
+            voidrun_simulation::log(&format!(
+                "⚠️ Projectile collision with unknown entity (InstanceId: {:?})",
+                collision_info.target_instance_id
+            ));
+            to_remove.push(*instance_id);
+            projectile.queue_free();
+            continue;
+        };
+
+        // Check self-hit (projectile не должна попадать в shooter)
+        let shooter = projectile.bind().shooter;
+        if target_entity == shooter {
+            voidrun_simulation::log(&format!(
+                "🚫 Projectile ignored self-collision: shooter={:?}",
+                shooter
+            ));
+            // Clear collision info, projectile продолжает лететь
+            projectile.bind_mut().collision_info = None;
+            continue;
+        };
+
+        // ✅ Generate ProjectileHit event (Godot → ECS)
+        let damage = projectile.bind().damage;
+        projectile_hit_events.write(voidrun_simulation::combat::ProjectileHit {
+            shooter,
+            target: target_entity,
+            damage,
+        });
+
+        voidrun_simulation::log(&format!(
+            "💥 Projectile hit! Shooter: {:?} → Target: {:?}, Damage: {} (normal: {:?})",
+            shooter, target_entity, damage, collision_info.impact_normal
+        ));
+
+        // Despawn projectile
+        to_remove.push(*instance_id);
+        projectile.queue_free();
+    }
+
+    // Cleanup processed projectiles from registry
+    for instance_id in to_remove {
+        registry.unregister(instance_id);
     }
 }
 

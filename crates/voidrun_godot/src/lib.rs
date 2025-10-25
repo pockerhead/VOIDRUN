@@ -5,6 +5,7 @@ mod camera;
 mod schedules;
 mod systems;
 mod projectile;
+mod projectile_registry;
 mod chunk_navmesh;
 mod avoidance_receiver;
 mod events;

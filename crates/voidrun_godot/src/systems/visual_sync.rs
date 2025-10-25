@@ -164,9 +164,8 @@ pub fn spawn_actor_visuals_main_thread(
         visuals.stamina_labels.insert(entity, stamina_label);
         visuals.ai_state_labels.insert(entity, ai_label);
 
-        // КРИТИЧНО: actor_node теперь САМ CharacterBody3D — регистрируем его для projectile collision
-        let actor_id = actor_node.instance_id();
-        crate::projectile::register_collision_body(actor_id, entity);
+        // КРИТИЧНО: actor_node теперь САМ CharacterBody3D
+        // Mapping InstanceId → Entity происходит через visuals.node_to_entity (выше)
         voidrun_simulation::log(&format!("  → CharacterBody3D (root) mapped for entity {:?}", entity));
 
         // КРИТИЧНО: PostSpawn коррекция — отправляем точную позицию обратно в ECS

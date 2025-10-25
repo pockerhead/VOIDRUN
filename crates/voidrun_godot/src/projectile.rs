@@ -4,39 +4,22 @@
 //! - Godot владеет всем lifecycle: spawn, physics, collision, cleanup
 //! - ECS получает только ProjectileHit event для damage calculation
 //! - Projectile НЕ хранится в ECS (tactical layer only)
+//!
+//! # Refactored Architecture (event-driven)
+//! - Collision info хранится IN projectile (не в global queue)
+//! - GodotProjectileRegistry tracks all projectiles
+//! - Collision processing через dedicated ECS system
 
 use godot::prelude::*;
 use godot::classes::{CharacterBody3D, ICharacterBody3D};
 use bevy::prelude::Entity;
-use voidrun_simulation::combat::ProjectileHit;
-use std::collections::HashMap;
 
-/// Static queue для ProjectileHit events (Godot → ECS)
-/// Godot не имеет прямого доступа к EventWriter, поэтому используем queue
-static mut PROJECTILE_HIT_QUEUE: Option<Vec<ProjectileHit>> = None;
-
-/// Static reverse mapping InstanceId → Entity (для projectile collision lookup)
-static mut NODE_TO_ENTITY: Option<HashMap<godot::prelude::InstanceId, Entity>> = None;
-
-pub fn init_projectile_hit_queue() {
-    unsafe {
-        PROJECTILE_HIT_QUEUE = Some(Vec::new());
-        NODE_TO_ENTITY = Some(HashMap::new());
-    }
-}
-
-pub fn register_collision_body(instance_id: godot::prelude::InstanceId, entity: Entity) {
-    unsafe {
-        if let Some(map) = NODE_TO_ENTITY.as_mut() {
-            map.insert(instance_id, entity);
-        }
-    }
-}
-
-pub fn take_projectile_hits() -> Vec<ProjectileHit> {
-    unsafe {
-        PROJECTILE_HIT_QUEUE.as_mut().map(|q| q.drain(..).collect()).unwrap_or_default()
-    }
+/// Collision info (хранится в projectile до обработки ECS)
+#[derive(Clone, Debug)]
+pub struct ProjectileCollisionInfo {
+    pub target_instance_id: InstanceId,
+    pub impact_point: Vector3,
+    pub impact_normal: Vector3,  // Для VFX (spark direction, shield ripple, decals)
 }
 
 /// Projectile — управляется Godot physics
@@ -59,6 +42,9 @@ pub struct GodotProjectile {
 
     /// Время жизни (секунды)
     pub lifetime: f32,
+
+    /// Collision info (хранится в projectile, обрабатывается ECS системой)
+    pub collision_info: Option<ProjectileCollisionInfo>,
 }
 
 #[godot_api]
@@ -71,6 +57,7 @@ impl ICharacterBody3D for GodotProjectile {
             speed: 30.0, // Default (переопределяется через setup())
             damage: 15,
             lifetime: 5.0,
+            collision_info: None,
         }
     }
 
@@ -106,67 +93,26 @@ impl ICharacterBody3D for GodotProjectile {
             }
         }
 
-        // 2. Проверяем collision
-        if let Some(collision_info) = collision {
-            voidrun_simulation::log(&format!(
-                "🎯 Projectile collision detected! shooter={:?}",
-                self.shooter
-            ));
-
-            // Получаем Entity из collider (reverse lookup через InstanceId)
-            let collider = collision_info.get_collider();
-            if let Some(collider_node) = collider {
+        // 2. Store collision info (НЕ пушим в queue!)
+        if let Some(godot_collision) = collision {
+            if let Some(collider_node) = godot_collision.get_collider() {
                 let instance_id = collider_node.instance_id();
+                let normal = godot_collision.get_normal();
+
+                // ✅ Store collision info IN projectile
+                self.collision_info = Some(ProjectileCollisionInfo {
+                    target_instance_id: instance_id,
+                    impact_point: self.base().get_global_position(),
+                    impact_normal: normal,
+                });
 
                 voidrun_simulation::log(&format!(
-                    "  Collider: InstanceId={:?}",
-                    instance_id
+                    "🎯 Projectile stored collision: instance_id={:?}, normal={:?}",
+                    instance_id, normal
                 ));
 
-                // Reverse lookup InstanceId → Entity
-                let mut should_destroy = false;
-
-                unsafe {
-                    if let Some(map) = NODE_TO_ENTITY.as_ref() {
-                        if let Some(&target_entity) = map.get(&instance_id) {
-                            // Игнорируем self-hit (projectile не должна попадать в shooter)
-                            if target_entity == self.shooter {
-                                voidrun_simulation::log(&format!(
-                                    "Projectile ignored self-collision: shooter={:?}",
-                                    self.shooter
-                                ));
-                                // НЕ удаляем projectile - продолжает лететь
-                            } else {
-                                // Отправляем ProjectileHit в queue
-                                if let Some(queue) = PROJECTILE_HIT_QUEUE.as_mut() {
-                                    queue.push(ProjectileHit {
-                                        shooter: self.shooter,
-                                        target: target_entity,
-                                        damage: self.damage,
-                                    });
-
-                                    voidrun_simulation::log(&format!(
-                                        "Projectile hit! Shooter: {:?} → Target: {:?}, Damage: {}",
-                                        self.shooter, target_entity, self.damage
-                                    ));
-                                }
-                                should_destroy = true; // Удаляем только при реальном попадании
-                            }
-                        } else {
-                            voidrun_simulation::log(&format!(
-                                "Projectile collision with unknown entity (InstanceId: {:?})",
-                                instance_id
-                            ));
-                            should_destroy = true; // Удаляем при collision с неизвестным объектом
-                        }
-                    }
-                }
-
-                // Удаляем projectile только если это не self-collision
-                if should_destroy {
-                    self.base_mut().queue_free();
-                    return;
-                }
+                // NOTE: Projectile НЕ удаляется здесь!
+                // ECS система projectile_collision_system_main_thread удалит после обработки.
             }
         }
 

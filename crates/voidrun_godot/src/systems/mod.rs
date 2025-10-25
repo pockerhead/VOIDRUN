@@ -36,7 +36,7 @@ pub use weapon_system::{
     weapon_aim_main_thread,
     process_ranged_attack_intents_main_thread,
     weapon_fire_main_thread,
-    process_godot_projectile_hits,
+    projectile_collision_system_main_thread, // NEW: Event-driven projectile collision
 };
 
 pub use melee_system::{
