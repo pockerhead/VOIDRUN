@@ -1,15 +1,29 @@
-//! AI decision-making module
+//! AI decision-making module (domain-driven architecture)
 //!
 //! Simple FSM для aggro AI (Фаза 1), Utility AI для faction AI (Фаза 4).
 //! Архитектура: docs/arch_backlog.md (#5)
 
 use bevy::prelude::*;
 
-pub mod simple_fsm;
+// Domain modules
+pub mod components;
+pub mod systems;
 pub mod events;
 
-// Re-export основных типов
-pub use simple_fsm::{AIState, AIConfig, SpottedEnemies, ai_react_to_gunfire, react_to_damage};
+// Re-export components
+pub use components::{AIState, AIConfig, SpottedEnemies};
+
+// Re-export systems
+pub use systems::{
+    // FSM systems
+    update_spotted_enemies, ai_fsm_transitions,
+    // Movement systems
+    ai_movement_from_state, ai_attack_execution, simple_collision_resolution,
+    // Reaction systems
+    handle_actor_death, react_to_damage, ai_react_to_gunfire,
+};
+
+// Re-export events
 pub use events::{GodotAIEvent, GodotTransformEvent, GodotNavigationEvent, CombatAIEvent};
 
 /// AI Plugin
@@ -34,14 +48,14 @@ impl Plugin for AIPlugin {
             FixedUpdate,
             (
                 sync_strategic_position_from_godot_events, // 0. Event-driven sync (Godot → ECS)
-                simple_fsm::handle_actor_death,     // 1. Обработка смерти → Dead state
-                simple_fsm::update_spotted_enemies, // 2. Обновляем SpottedEnemies из GodotAIEvent
-                simple_fsm::react_to_damage,        // 3. AI реакция на урон (DamageDealt → FollowEntity)
-                simple_fsm::ai_react_to_gunfire,    // 4. AI реакция на звук выстрела (WeaponFired → ActorSpotted)
-                simple_fsm::ai_fsm_transitions,     // 5. FSM transitions на основе SpottedEnemies
-                simple_fsm::ai_movement_from_state, // 6. Конвертация state → MovementCommand
+                handle_actor_death,          // 1. Обработка смерти → Dead state
+                update_spotted_enemies,      // 2. Обновляем SpottedEnemies из GodotAIEvent
+                react_to_damage,             // 3. AI реакция на урон (DamageDealt → FollowEntity)
+                ai_react_to_gunfire,         // 4. AI реакция на звук выстрела (WeaponFired → ActorSpotted)
+                ai_fsm_transitions,          // 5. FSM transitions на основе SpottedEnemies
+                ai_movement_from_state,      // 6. Конвертация state → MovementCommand
                 // УДАЛЕНО: ai_attack_execution (заменён на ai_melee_attack_intent в combat systems)
-                simple_fsm::simple_collision_resolution, // 7. Отталкивание NPC
+                simple_collision_resolution, // 7. Отталкивание NPC
             )
                 .chain(), // Последовательное выполнение для детерминизма
         );
