@@ -7,8 +7,9 @@
 
 use bevy::prelude::*;
 use godot::prelude::*;
+use voidrun_simulation::logger;
 
-use crate::systems::VisualRegistry;
+use crate::shared::VisualRegistry;
 
 /// Check line-of-sight between two entities using Godot physics raycast.
 ///
@@ -36,7 +37,7 @@ pub fn check_line_of_sight(
     from_entity: Entity,
     to_entity: Entity,
     visuals: &NonSend<VisualRegistry>,
-    scene_root: &NonSend<crate::systems::SceneRoot>,
+    scene_root: &NonSend<crate::shared::SceneRoot>,
 ) -> Option<bool> {
     // 1. Get Godot nodes for both entities
     let Some(from_node_3d) = visuals.visuals.get(&from_entity) else {
@@ -61,20 +62,20 @@ pub fn check_line_of_sight(
     // 3. Raycast через PhysicsDirectSpaceState3D
     let world = scene_root.node.get_world_3d();
     let Some(mut world) = world else {
-        voidrun_simulation::log_error("check_line_of_sight: World3D не найден");
+        logger::log_error("check_line_of_sight: World3D не найден");
         return None;
     };
 
     let space = world.get_direct_space_state();
     let Some(mut space) = space else {
-        voidrun_simulation::log_error("check_line_of_sight: PhysicsDirectSpaceState3D не найден");
+        logger::log_error("check_line_of_sight: PhysicsDirectSpaceState3D не найден");
         return None;
     };
 
     // Создаём raycast query
     let query = godot::classes::PhysicsRayQueryParameters3D::create(from_pos, to_pos);
     let Some(mut query) = query else {
-        voidrun_simulation::log_error("check_line_of_sight: PhysicsRayQueryParameters3D::create failed");
+        logger::log_error("check_line_of_sight: PhysicsRayQueryParameters3D::create failed");
         return None;
     };
 
@@ -95,13 +96,13 @@ pub fn check_line_of_sight(
 
     // Есть коллизия → проверяем что это target entity
     let Some(collider) = result.get("collider") else {
-        voidrun_simulation::log_error("check_line_of_sight: raycast result missing 'collider'");
+        logger::log_error("check_line_of_sight: raycast result missing 'collider'");
         return None;
     };
 
     // Получаем Variant → Gd<Node>
     let Ok(collider_node) = collider.try_to::<Gd<godot::classes::Node>>() else {
-        voidrun_simulation::log_error("check_line_of_sight: collider не является Node");
+        logger::log_error("check_line_of_sight: collider не является Node");
         return None;
     };
 

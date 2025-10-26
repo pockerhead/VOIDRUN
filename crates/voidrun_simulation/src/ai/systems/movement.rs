@@ -48,7 +48,7 @@ pub fn ai_movement_from_state(
             AIState::Combat { target } => {
                 // Следуем за target (FollowEntity для динамического преследования)
                 if !matches!(*command, MovementCommand::FollowEntity { target: t } if t == *target) {
-                    crate::log(&format!("🏃 AI movement: Combat → FollowEntity {:?}", target));
+                    crate::logger::log(&format!("🏃 AI movement: Combat → FollowEntity {:?}", target));
                     *command = MovementCommand::FollowEntity {
                         target: *target,
                     };
@@ -115,7 +115,7 @@ pub fn ai_attack_execution(
             // Просто сбрасываем cooldown
             weapon.cooldown_timer = weapon.attack_cooldown;
 
-            crate::log(&format!("AI: attacking target {:?}", target));
+            crate::logger::log(&format!("AI: attacking target {:?}", target));
         }
     }
 }

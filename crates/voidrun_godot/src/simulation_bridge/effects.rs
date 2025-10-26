@@ -9,11 +9,11 @@ use godot::classes::{
     CpuParticles3D, Mesh, Node, SphereMesh, StandardMaterial3D,
 };
 use godot::prelude::*;
-
+use voidrun_simulation::logger;
 impl SimulationBridge {
     /// Спавнит красные particles в точке удара
     fn spawn_hit_particles(&mut self, position: Vector3) {
-        voidrun_simulation::log(&format!(
+        logger::log(&format!(
             "DEBUG: Creating particles at position {:?}",
             position
         ));
@@ -61,7 +61,7 @@ impl SimulationBridge {
         // Добавляем в сцену
         self.base_mut().add_child(&particles.upcast::<Node>());
 
-        voidrun_simulation::log("DEBUG: Particles spawned and added to scene");
+        logger::log("DEBUG: Particles spawned and added to scene");
 
         // TODO: добавить timer для автоочистки (после 1 секунды)
     }
@@ -87,7 +87,7 @@ impl SimulationBridge {
                 .collect();
 
             if !events.is_empty() {
-                voidrun_simulation::log(&format!(
+                logger::log(&format!(
                     "DEBUG: Found {} damage events this frame",
                     events.len()
                 ));
@@ -108,7 +108,7 @@ impl SimulationBridge {
 
         // Теперь спавним particles (можем заимствовать self mutably)
         for pos in positions {
-            voidrun_simulation::log(&format!("DEBUG: Spawning hit particles at {:?}", pos));
+            logger::log(&format!("DEBUG: Spawning hit particles at {:?}", pos));
             self.spawn_hit_particles(pos);
         }
     }

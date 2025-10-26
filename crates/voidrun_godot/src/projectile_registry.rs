@@ -8,6 +8,7 @@
 use godot::prelude::*;
 use std::collections::HashMap;
 use crate::projectile::GodotProjectile;
+use voidrun_simulation::logger;
 
 /// Registry для Godot projectiles
 ///
@@ -24,13 +25,13 @@ impl GodotProjectileRegistry {
     pub fn register(&mut self, projectile: Gd<GodotProjectile>) {
         let instance_id = projectile.instance_id();
         self.projectiles.insert(instance_id, projectile);
-        voidrun_simulation::log(&format!("📋 Registered projectile: {:?}", instance_id));
+        logger::log(&format!("📋 Registered projectile: {:?}", instance_id));
     }
 
     /// Unregister projectile (after despawn)
     pub fn unregister(&mut self, instance_id: InstanceId) {
         self.projectiles.remove(&instance_id);
-        voidrun_simulation::log(&format!("🗑️ Unregistered projectile: {:?}", instance_id));
+        logger::log(&format!("🗑️ Unregistered projectile: {:?}", instance_id));
     }
 
     /// Cleanup destroyed projectiles (call every frame)
@@ -40,7 +41,7 @@ impl GodotProjectileRegistry {
         self.projectiles.retain(|id, proj| {
             let is_valid = proj.is_instance_valid();
             if !is_valid {
-                voidrun_simulation::log(&format!("🗑️ Cleanup destroyed projectile: {:?}", id));
+                logger::log(&format!("🗑️ Cleanup destroyed projectile: {:?}", id));
             }
             is_valid
         });

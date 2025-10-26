@@ -16,6 +16,7 @@ use godot::prelude::*;
 use bevy::prelude::Vec2;
 
 use super::events::{CameraToggleEvent, MouseLookEvent, PlayerInputEvent, WeaponSwitchEvent};
+use voidrun_simulation::logger;
 
 /// PlayerInputController - читает Godot Input и emit ECS events
 ///
@@ -47,7 +48,7 @@ impl INode for PlayerInputController {
     }
 
     fn ready(&mut self) {
-        voidrun_simulation::log("PlayerInputController ready - waiting for player spawn");
+        logger::log("PlayerInputController ready - waiting for player spawn");
     }
 
     fn process(&mut self, delta: f64) {
@@ -193,7 +194,7 @@ impl PlayerInputController {
                 )
             })
         else {
-            voidrun_simulation::log_error(&format!(
+            logger::log_error(&format!(
                 "PlayerInputController: SimulationBridge not found at path: {}",
                 self.simulation_bridge_path
             ));

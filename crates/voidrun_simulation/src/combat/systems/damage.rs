@@ -106,7 +106,7 @@ pub fn apply_damage_with_shield(
                     let overflow = (-shield.current_energy) as u32;
                     if overflow > 0 {
                         target_health.take_damage(overflow);
-                        crate::log(&format!(
+                        crate::logger::log(&format!(
                             "💥 Shield BROKEN! Overflow: {} damage",
                             overflow
                         ));
@@ -114,11 +114,11 @@ pub fn apply_damage_with_shield(
                     }
                 }
 
-                crate::log("🛡️ Shield absorbed damage");
+                crate::logger::log("🛡️ Shield absorbed damage");
                 return AppliedDamage::ShieldAbsorbed;
             } else {
                 // Shield exists but inactive → direct damage to body
-                crate::log("🛡️ Shield INACTIVE — projectile bypassed shield");
+                crate::logger::log("🛡️ Shield INACTIVE — projectile bypassed shield");
             }
         }
     }
@@ -158,7 +158,7 @@ pub fn disable_ai_on_death(
             entity_commands.remove::<crate::components::MovementCommand>();
             entity_commands.insert(Dead);
 
-            crate::log(&format!("INFO: Disabled AI for dead entity {:?}", event.entity));
+            crate::logger::log(&format!("INFO: Disabled AI for dead entity {:?}", event.entity));
         }
     }
 }
@@ -177,7 +177,7 @@ pub fn despawn_after_timeout(
 
     for (entity, despawn_after) in query.iter() {
         if current_time >= despawn_after.despawn_time {
-            crate::log(&format!("⚰️ Despawning entity {:?} (timeout)", entity));
+            crate::logger::log(&format!("⚰️ Despawning entity {:?} (timeout)", entity));
             commands.entity(entity).despawn();
         }
     }

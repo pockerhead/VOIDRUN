@@ -6,6 +6,7 @@
 use godot::classes::{Button, Control, IControl, InputEvent, InputEventKey, Label};
 use godot::global::Key;
 use godot::prelude::*;
+use voidrun_simulation::logger;
 
 /// Debug overlay — UI panel с FPS counter, spawn buttons, debug info
 ///
@@ -68,7 +69,7 @@ impl IControl for DebugOverlay {
             self.connect_buttons();
         }
 
-        voidrun_simulation::log("✅ DebugOverlay ready (F3 to toggle)");
+        logger::log("✅ DebugOverlay ready (F3 to toggle)");
     }
 
     fn process(&mut self, delta: f64) {
@@ -88,7 +89,7 @@ impl IControl for DebugOverlay {
             self.base_mut().set_visible(!is_visible);
 
             let status = if !is_visible { "shown" } else { "hidden" };
-            voidrun_simulation::log(&format!("🐛 Debug overlay {} (F3)", status));
+            logger::log(&format!("🐛 Debug overlay {} (F3)", status));
         }
     }
 }
@@ -133,7 +134,7 @@ impl DebugOverlay {
     /// Подключить button signals к SimulationBridge методам
     fn connect_buttons(&mut self) {
         if self.simulation_bridge_path.is_empty() {
-            voidrun_simulation::log_error("❌ DebugOverlay: simulation_bridge_path not set!");
+            logger::log_error("❌ DebugOverlay: simulation_bridge_path not set!");
             return;
         }
 
@@ -142,7 +143,7 @@ impl DebugOverlay {
             .base()
             .try_get_node_as::<Node>(self.simulation_bridge_path.arg())
         else {
-            voidrun_simulation::log_error(&format!(
+            logger::log_error(&format!(
                 "❌ DebugOverlay: SimulationBridge not found at path: {}",
                 self.simulation_bridge_path
             ));
@@ -161,7 +162,7 @@ impl DebugOverlay {
             button.connect("pressed", &callable);
         }
 
-        voidrun_simulation::log("✅ DebugOverlay: buttons connected to SimulationBridge");
+        logger::log("✅ DebugOverlay: buttons connected to SimulationBridge");
     }
 
     /// Update FPS counter (каждые 0.2 сек)

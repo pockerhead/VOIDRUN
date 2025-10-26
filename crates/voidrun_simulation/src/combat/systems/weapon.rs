@@ -63,7 +63,7 @@ pub fn ai_weapon_fire_intent(
         // Начинаем cooldown (ECS владеет cooldown state)
         weapon.start_cooldown();
 
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "Actor {:?} wants to fire at {:?} (intent generated)",
             entity, target
         ));
@@ -80,14 +80,14 @@ pub fn process_projectile_hits(
     mut damage_events: EventWriter<DamageDealt>,
 ) {
     for hit in hit_events.read() {
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "🎯 ProjectileHit: shooter={:?} → target={:?} dmg={} at {:?}",
             hit.shooter, hit.target, hit.damage, hit.impact_point
         ));
 
         // Проверка self-hit (не должно быть!)
         if hit.shooter == hit.target {
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "⚠️ SELF-HIT DETECTED! Entity {:?} hit itself!",
                 hit.shooter
             ));
@@ -117,7 +117,7 @@ pub fn process_projectile_hits(
             impact_normal: hit.impact_normal,
         });
 
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "💥 Projectile damage applied: {:?} (HP: {})",
             applied, health.current
         ));
@@ -135,14 +135,14 @@ pub fn process_projectile_shield_hits(
     mut damage_events: EventWriter<DamageDealt>,
 ) {
     for hit in hit_events.read() {
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "🛡️ ProjectileShieldHit: shooter={:?} → shield={:?} dmg={} at {:?}",
             hit.shooter, hit.target, hit.damage, hit.impact_point
         ));
 
         // Paranoid validation: shooter != target (должно быть уже проверено в Godot)
         if hit.shooter == hit.target {
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "⚠️ SELF-SHIELD HIT! This should never happen (Godot bug?). Entity {:?}",
                 hit.shooter
             ));
@@ -172,7 +172,7 @@ pub fn process_projectile_shield_hits(
             impact_normal: hit.impact_normal,
         });
 
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "🛡️ Shield absorbed damage: {:?} (HP: {} — untouched)",
             applied, health.current
         ));

@@ -17,6 +17,7 @@ use godot::prelude::*;
 use godot::classes::{
     NavigationMesh, NavigationServer3D, NavigationMeshSourceGeometryData3D,
 };
+use voidrun_simulation::logger;
 
 /// Параметры NavMesh baking (настройки алгоритма)
 ///
@@ -104,7 +105,7 @@ pub fn bake_navmesh_from_geometry(
     let mut source_geometry = NavigationMeshSourceGeometryData3D::new_gd();
     source_geometry.add_faces(vertices, Transform3D::IDENTITY);
 
-    voidrun_simulation::log(&format!(
+    logger::log(&format!(
         "📐 NavMesh baking: {} vertices → NavigationServer3D",
         vertices.len()
     ));
@@ -116,13 +117,13 @@ pub fn bake_navmesh_from_geometry(
     // Debug: проверяем результат
     let vertex_count = nav_mesh.get_vertices().len();
     let polygon_count = nav_mesh.get_polygon_count();
-    voidrun_simulation::log(&format!(
+    logger::log(&format!(
         "✅ NavMesh baked: {} vertices, {} polygons",
         vertex_count, polygon_count
     ));
 
     if polygon_count == 0 {
-        voidrun_simulation::log("❌ WARNING: NavMesh has 0 polygons! Check geometry/parameters");
+        logger::log("❌ WARNING: NavMesh has 0 polygons! Check geometry/parameters");
     }
 
     nav_mesh
@@ -287,7 +288,7 @@ pub fn create_test_navigation_region_with_obstacles(
         nav_region.add_child(&obstacle.upcast::<Node>());
     }
 
-    voidrun_simulation::log("🏗️ Test NavigationRegion3D created with ground + 4 obstacles");
+    logger::log("🏗️ Test NavigationRegion3D created with ground + 4 obstacles");
 
     nav_region
 }

@@ -3,7 +3,7 @@
 //! Утилиты для spawn player entity в ECS world.
 
 use bevy::prelude::*;
-use voidrun_simulation::components::*;
+use voidrun_simulation::*;
 
 /// Spawn player entity в ECS world
 ///
@@ -38,7 +38,7 @@ pub fn spawn_player(
 
     commands
         .spawn((
-            Player, // Marker: player-controlled (не AI)
+            player::Player, // Marker: player-controlled (не AI)
             Actor { faction_id: 1 }, // Faction 0 = player faction
             strategic_pos,
             PrefabPath::new("res://actors/test_player.tscn"), // Player prefab (inherits test_actor + CameraPivot)

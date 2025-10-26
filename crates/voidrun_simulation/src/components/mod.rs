@@ -1,36 +1,20 @@
-//! ECS Components для игровых entity
+//! ECS Components — backward compatibility re-exports
 //!
-//! Организация по доменам:
-//! - actor: базовые характеристики (faction, health, stamina)
-//! - combat: боевая механика (attacker)
-//! - movement: навигация и перемещение (MovementCommand, NavigationState)
-//! - ai: искусственный интеллект (AIState, AIConfig, SpottedEnemies)
-//! - world: позиционирование в мире (StrategicPosition, PrefabPath)
-//! - attachment: динамические префабы (Attachment, AttachmentType)
-//! - player: player control marker (Player)
-//! - camera: camera mode tracking (CameraMode, ActiveCamera)
-//! - equipment: экипировка (EquippedWeapons, ConsumableSlots, Armor, EnergyShield, Inventory)
-//! - player_shooting: прицеливание (AimMode, ToggleADSIntent)
+//! После Phase 1 рефакторинга все компоненты перенесены в domain модули:
+//! - actor domain: Actor, Health, Stamina, PlayerControlled
+//! - movement domain: MovementCommand, NavigationState, MovementSpeed, JumpIntent
+//! - shooting domain: AimMode, ToggleADSIntent
+//! - shared domain: StrategicPosition, PrefabPath, EquippedWeapons, Armor, EnergyShield, Inventory, CameraMode, ActiveCamera, Attachment
+//! - combat domain: WeaponStats, MeleeAttackState, etc. (уже в combat/)
+//! - ai domain: AIState, AIConfig, etc. (уже в ai/)
+//!
+//! Этот модуль re-export'ит всё из доменов для обратной совместимости.
+//! Legacy код может использовать `use voidrun_simulation::components::*;`
 
-pub mod actor;
-pub mod combat;
-pub mod movement;
-pub mod ai;
-pub mod world;
-pub mod attachment;
-pub mod player;
-pub mod camera;
-pub mod equipment;
-pub mod player_shooting;
-
-// Re-exports для удобного импорта
-pub use actor::*;
-pub use combat::*;
-pub use movement::*;
-pub use ai::*;
-pub use world::*;
-pub use attachment::*;
-pub use player::*;
-pub use camera::*;
-pub use equipment::*;
-pub use player_shooting::*;
+// Re-exports из domain modules
+pub use crate::actor::*;
+pub use crate::movement::*;
+pub use crate::shooting::*;
+pub use crate::shared::*;
+pub use crate::combat::*;
+pub use crate::ai::*;

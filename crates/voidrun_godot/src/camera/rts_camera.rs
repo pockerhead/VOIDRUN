@@ -1,7 +1,7 @@
 use godot::prelude::*;
 use godot::classes::{Node3D, Camera3D, InputEvent, InputEventMouseMotion, InputEventMouseButton, Input, input};
 use godot::global::{MouseButton, Key};
-
+use voidrun_simulation::logger;
 /// RTS-style camera: WASD movement, mouse drag orbit, scroll zoom
 ///
 /// Hierarchy:
@@ -75,7 +75,7 @@ impl INode3D for RTSCamera3D {
             self.zoom_target = cam.get_position().z;
         }
 
-        voidrun_simulation::log("RTSCamera3D ready (Rust)");
+        logger::log("RTSCamera3D ready (Rust)");
     }
 
     fn unhandled_input(&mut self, event: Gd<InputEvent>) {

@@ -13,7 +13,7 @@ pub fn handle_actor_death(
     for (health, mut state) in actors.iter_mut() {
         if health.current == 0 && !matches!(*state, AIState::Dead) {
             *state = AIState::Dead;
-            crate::log("Actor died → AI disabled (Dead state)");
+            crate::logger::log("Actor died → AI disabled (Dead state)");
         }
     }
 }
@@ -51,7 +51,7 @@ pub fn react_to_damage(
         // Добавляем атакующего в SpottedEnemies (если ещё не там)
         if !spotted_enemies.enemies.contains(&damage_event.attacker) {
             spotted_enemies.enemies.push(damage_event.attacker);
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "⚠️ {:?} damaged by {:?} → added to SpottedEnemies",
                 damage_event.target, damage_event.attacker
             ));
@@ -62,7 +62,7 @@ pub fn react_to_damage(
             target: damage_event.attacker,
         };
 
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "🔥 {:?} hit by {:?} → following attacker",
             damage_event.target, damage_event.attacker
         ));
@@ -116,7 +116,7 @@ pub fn ai_react_to_gunfire(
             }
 
             // ✅ Услышал выстрел!
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "🔊 Entity {:?} heard gunfire from {:?} at distance {:.1}m (range: {:.1}m)",
                 listener_entity, fire_event.shooter, distance, fire_event.hearing_range
             ));
@@ -139,7 +139,7 @@ pub fn ai_react_to_gunfire(
                 target: investigate_pos,
             };
 
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "  → Entity {:?} moving to investigate gunfire at {:?}",
                 listener_entity, investigate_pos
             ));

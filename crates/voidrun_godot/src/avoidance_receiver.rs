@@ -19,6 +19,7 @@
 
 use godot::classes::{NavigationAgent3D, Node};
 use godot::prelude::*;
+use voidrun_simulation::logger;
 
 #[derive(GodotClass)]
 #[class(base=Node)]
@@ -55,13 +56,13 @@ impl INode for AvoidanceReceiver {
     fn ready(&mut self) {
         // Найти NavigationAgent3D sibling
         let Some(parent) = self.base().get_parent() else {
-            voidrun_simulation::log_error("AvoidanceReceiver: no parent node");
+            logger::log_error("AvoidanceReceiver: no parent node");
             return;
         };
 
         let Some(mut nav_agent) = parent.try_get_node_as::<NavigationAgent3D>("NavigationAgent3D")
         else {
-            voidrun_simulation::log_error("AvoidanceReceiver: NavigationAgent3D not found");
+            logger::log_error("AvoidanceReceiver: NavigationAgent3D not found");
             return;
         };
 
@@ -69,7 +70,7 @@ impl INode for AvoidanceReceiver {
         let callable = self.base().callable("on_velocity_computed");
         nav_agent.connect("velocity_computed", &callable);
 
-        voidrun_simulation::log(&format!(
+        logger::log(&format!(
             "AvoidanceReceiver ready for entity {}, connected to velocity_computed signal",
             self.entity_id
         ));
@@ -95,7 +96,7 @@ impl AvoidanceReceiver {
                 )
             })
         else {
-            voidrun_simulation::log_error(&format!("AvoidanceReceiver: SimulationBridge not found at path: {}", self.simulation_bridge_path));
+            logger::log_error(&format!("AvoidanceReceiver: SimulationBridge not found at path: {}", self.simulation_bridge_path));
             return;
         };
 

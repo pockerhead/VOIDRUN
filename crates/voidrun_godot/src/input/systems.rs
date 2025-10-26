@@ -15,12 +15,15 @@
 
 use bevy::prelude::*;
 use godot::prelude::*;
-use voidrun_simulation::components::{ActiveCamera, CameraMode, JumpIntent, Player};
-use voidrun_simulation::components::player_shooting::ToggleADSIntent;
+use voidrun_simulation::camera::{ActiveCamera, CameraMode};
+use voidrun_simulation::movement::JumpIntent;
+use voidrun_simulation::player::Player;
+use voidrun_simulation::shooting::ToggleADSIntent;
 use voidrun_simulation::combat::{MeleeAttackIntent, MeleeAttackState, ParryIntent, ParryState, WeaponStats, WeaponFireIntent};
+use voidrun_simulation::logger;
 
 use super::events::PlayerInputEvent;
-use crate::systems::VisualRegistry;
+use crate::shared::VisualRegistry;
 
 /// Player movement system - НАПРЯМУЮ устанавливает velocity CharacterBody3D
 ///
@@ -212,7 +215,7 @@ pub fn player_combat_input(
                 ads_toggle_events.write(ToggleADSIntent {
                     entity: player_entity,
                 });
-                voidrun_simulation::log("🎯 Toggle ADS");
+                logger::log("🎯 Toggle ADS");
             }
         }
     }
@@ -236,13 +239,13 @@ fn handle_parry_input(
 ) {
     // Guard 1: Already parrying
     if parry_states.contains(player_entity) {
-        voidrun_simulation::log("⚠️ Player already parrying");
+        logger::log("⚠️ Player already parrying");
         return;
     }
 
     // Guard 2: Attacking (cannot parry during attack)
     if attack_states.iter().any(|(e, _)| e == player_entity) {
-        voidrun_simulation::log("⚠️ Cannot parry while attacking");
+        logger::log("⚠️ Cannot parry while attacking");
         return;
     }
 
@@ -264,9 +267,9 @@ fn handle_parry_input(
 
     // Log based on parry type
     if let Some(target) = attacker {
-        voidrun_simulation::log(&format!("🛡️ Player parry → target {:?}", target));
+        logger::log(&format!("🛡️ Player parry → target {:?}", target));
     } else {
-        voidrun_simulation::log("🛡️ Player parry (defensive/idle)");
+        logger::log("🛡️ Player parry (defensive/idle)");
     }
 }
 
@@ -301,7 +304,7 @@ fn find_closest_attacker_in_vision(
     // Get player VisionCone Area3D (path: Head/VisionCone)
     let Some(vision_cone) = player_node.try_get_node_as::<godot::classes::Area3D>("Head/VisionCone")
     else {
-        voidrun_simulation::log_error("❌ Player VisionCone not found (parry detection failed)");
+        logger::log_error("❌ Player VisionCone not found (parry detection failed)");
         return None;
     };
 

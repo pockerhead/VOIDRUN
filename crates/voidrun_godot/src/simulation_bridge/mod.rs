@@ -5,18 +5,19 @@
 //! - Каждый frame: ECS update → sync transforms → update health bars
 
 mod effects;
-mod logger;
 mod scene;
 mod spawn;
 mod systems_setup;
+mod godot_logger;
 
-use crate::systems::{AttachmentRegistry, SceneRoot, VisualRegistry, VisionTracking};
+use crate::shared::{AttachmentRegistry, SceneRoot, VisualRegistry, GodotDeltaTime};
+use crate::vision::VisionTracking;
 use godot::classes::{INode3D, Node};
 use godot::prelude::*;
-use logger::GodotLogger;
+use godot_logger::GodotLogger;
 use spawn::{spawn_melee_npc, spawn_test_npc};
-use voidrun_simulation::{create_headless_app, LogLevel, SimulationPlugin};
-
+use voidrun_simulation::{create_headless_app, SimulationPlugin};
+use voidrun_simulation::logger;
 /// SimulationBridge: главный node для Godot ↔ ECS интеграции
 #[derive(GodotClass)]
 #[class(base=Node3D)]
@@ -38,9 +39,9 @@ impl INode3D for SimulationBridge {
 
     fn ready(&mut self) {
         GodotLogger::clear_log_file();
-        voidrun_simulation::set_logger(Box::new(GodotLogger));
-        voidrun_simulation::set_log_level(LogLevel::Debug);
-        voidrun_simulation::log("SimulationBridge ready - building 3D scene in Rust");
+        logger::set_logger(Box::new(GodotLogger));
+        logger::set_log_level(logger::LogLevel::Debug);
+        logger::log("SimulationBridge ready - building 3D scene in Rust");
 
         // 1. Создаём navigation region + ground
         self.create_navigation_region();
@@ -75,7 +76,7 @@ impl INode3D for SimulationBridge {
 
         self.simulation = Some(app);
 
-        voidrun_simulation::log("Scene ready: Press 'Spawn NPCs' button to spawn test NPCs");
+        logger::log("Scene ready: Press 'Spawn NPCs' button to spawn test NPCs");
     }
 
     fn process(&mut self, delta: f64) {
@@ -83,7 +84,7 @@ impl INode3D for SimulationBridge {
         if let Some(app) = &mut self.simulation {
             // Передаём delta time в Bevy (для movement system)
             app.world_mut()
-                .insert_resource(crate::systems::GodotDeltaTime(delta as f32));
+                .insert_resource(GodotDeltaTime(delta as f32));
 
             app.update(); // ECS systems выполнятся, включая attach/detach_prefabs_main_thread
         }
@@ -98,10 +99,10 @@ impl SimulationBridge {
     /// Spawn NPCs button callback (вызывается при нажатии кнопки)
     #[func]
     pub fn spawn_npcs(&mut self) {
-        voidrun_simulation::log("🎮 Spawn button pressed - spawning test NPCs");
+        logger::log("🎮 Spawn button pressed - spawning test NPCs");
 
         let Some(app) = &mut self.simulation else {
-            voidrun_simulation::log_error("❌ Simulation not initialized!");
+            logger::log_error("❌ Simulation not initialized!");
             return;
         };
 
@@ -121,16 +122,16 @@ impl SimulationBridge {
         spawn_test_npc(&mut commands, (2.0, 0.0, -5.0), 3, 60);
         spawn_test_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
 
-        voidrun_simulation::log("✅ NPCs spawned successfully (9 NPCs, 3 factions)");
+        logger::log("✅ NPCs spawned successfully (9 NPCs, 3 factions)");
     }
 
     /// Spawn player button callback (вызывается при нажатии кнопки)
     #[func]
     pub fn spawn_player(&mut self) {
-        voidrun_simulation::log("🎮 Spawn Player button pressed");
+        logger::log("🎮 Spawn Player button pressed");
 
         let Some(app) = &mut self.simulation else {
-            voidrun_simulation::log_error("❌ Simulation not initialized!");
+            logger::log_error("❌ Simulation not initialized!");
             return;
         };
 
@@ -142,7 +143,7 @@ impl SimulationBridge {
 
             // Используем spawn напрямую вместо Commands
             entity_commands.insert((
-                voidrun_simulation::components::Player,
+                voidrun_simulation::player::Player,
                 voidrun_simulation::components::Actor { faction_id: 1 },
                 voidrun_simulation::StrategicPosition::from_world_position(
                     bevy::prelude::Vec3::new(0.0, 2.0, 0.0),
@@ -183,7 +184,7 @@ impl SimulationBridge {
                 voidrun_simulation::ConsumableSlots::default(), // Базовые 2 слота
                 voidrun_simulation::Inventory::empty(), // Пустой инвентарь пока
                 // Player shooting components
-                voidrun_simulation::components::player_shooting::AimMode::default(), // Hip Fire по умолчанию
+                voidrun_simulation::shooting::AimMode::default(), // Hip Fire по умолчанию
             ));
 
             player_entity
@@ -201,7 +202,7 @@ impl SimulationBridge {
         // Добавляем PlayerInputController как child node SimulationBridge
         self.base_mut().add_child(&controller.upcast::<Node>());
 
-        voidrun_simulation::log(&format!(
+        logger::log(&format!(
             "✅ Player spawned successfully (entity: {:?})",
             player_entity
         ));

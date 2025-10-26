@@ -7,51 +7,84 @@ use bevy::prelude::*;
 
 /// Регистрация всех ECS систем в Bevy App
 pub fn register_systems(app: &mut App) {
-    use crate::systems::{
-        ai_melee_combat_decision_main_thread, // Unified AI melee combat decision system (attack/parry/wait)
-        apply_gravity_to_all_actors,          // Gravity + jump для ВСЕХ акторов (ПЕРВАЯ система!)
-        apply_navigation_velocity_main_thread,
-        apply_retreat_velocity_main_thread,
-        apply_safe_velocity_system, // NavigationAgent3D avoidance
-        attach_prefabs_main_thread,
-        camera_toggle_system, // Camera toggle [V] key (FPS ↔ RTS)
-        despawn_actor_visuals_main_thread,
-        detach_prefabs_main_thread,
-        disable_collision_on_death_main_thread,
-        execute_melee_attacks_main_thread,
-        execute_parry_animations_main_thread,
-        execute_stagger_animations_main_thread,
-        player_mouse_look,    // Mouse look (FPS only)
-        poll_melee_hitboxes_main_thread,
-        poll_vision_cones_main_thread,
-        process_melee_attack_intents_main_thread,
-        process_movement_commands_main_thread,
-        process_ranged_attack_intents_main_thread,
-        process_player_weapon_switch, // Weapon switch (Godot input → SwapActiveWeaponIntent)
-        // process_weapon_switch удалён — в voidrun_simulation::EquipmentPlugin
-        projectile_collision_system_main_thread, // Event-driven projectile → body collision
-        projectile_shield_collision_main_thread, // Shield collision detection (Area3D)
-        setup_player_camera,           // Setup player camera при spawn
+    // Visual sync domain
+    use crate::visual_sync::{
         spawn_actor_visuals_main_thread,
-        sync_ai_state_labels_main_thread,
         sync_health_labels_main_thread,
         sync_stamina_labels_main_thread,
         sync_shield_labels_main_thread,
-        update_combat_targets_main_thread, // Dynamic target switching (closest spotted enemy)
+        sync_ai_state_labels_main_thread,
+        disable_collision_on_death_main_thread,
+        despawn_actor_visuals_main_thread,
+    };
+
+    // Movement domain
+    use crate::movement_system::{
+        apply_gravity_to_all_actors, // Gravity + jump для ВСЕХ акторов (ПЕРВАЯ система!)
+        process_movement_commands_main_thread,
         update_follow_entity_targets_main_thread,
+        apply_retreat_velocity_main_thread,
+        apply_navigation_velocity_main_thread,
+        apply_safe_velocity_system, // NavigationAgent3D avoidance
+    };
+
+    // Weapon domain
+    use crate::weapon_system::{
+        update_combat_targets_main_thread, // Dynamic target switching
         weapon_aim_main_thread,
+        process_ranged_attack_intents_main_thread,
         weapon_fire_main_thread,
-        // Player shooting systems (ADS + Hip Fire)
+        projectile_collision_system_main_thread, // Event-driven projectile → body collision
+        projectile_shield_collision_main_thread, // Shield collision detection (Area3D)
+    };
+
+    // Melee domain
+    use crate::melee::{
+        process_melee_attack_intents_main_thread,
+        execute_melee_attacks_main_thread,
+        poll_melee_hitboxes_main_thread,
+        execute_parry_animations_main_thread,
+        execute_stagger_animations_main_thread,
+    };
+
+    // AI combat domain
+    use crate::ai_melee_combat_decision::ai_melee_combat_decision_main_thread;
+
+    // Vision domain
+    use crate::vision::poll_vision_cones_main_thread;
+
+    // Attachment domain
+    use crate::attachment::{
+        attach_prefabs_main_thread,
+        detach_prefabs_main_thread,
+    };
+
+    // Camera domain
+    use crate::camera::{
+        setup_player_camera, // Setup player camera при spawn
+        camera_toggle_system, // Camera toggle [V] key (FPS ↔ RTS)
+        player_mouse_look,    // Mouse look (FPS only)
+    };
+
+    // Weapon switch domain
+    use crate::weapon_switch::process_player_weapon_switch;
+
+    // Shooting domain (ADS + Hip Fire)
+    use crate::shooting::{
         process_ads_toggle,
         update_ads_position_transition,
         player_hip_fire_aim,
-        // Shield VFX
+    };
+
+    // Shield VFX domain
+    use crate::shield_vfx::{
         update_shield_energy_vfx_main_thread,
         update_shield_ripple_vfx_main_thread, // Ripple VFX on ProjectileShieldHit
         update_shield_collision_state_main_thread, // Shield collision enable/disable based on is_active
     };
 
-    use crate::systems::weapon_system::detect_melee_windups_main_thread;
+    // Дополнительно из weapon_system
+    use crate::weapon_system::detect_melee_windups_main_thread;
 
     // 1. Регистрируем Godot tactical layer events
     app.add_event::<crate::events::SafeVelocityComputed>();
@@ -60,7 +93,7 @@ pub fn register_systems(app: &mut App) {
     app.add_event::<crate::input::CameraToggleEvent>(); // Camera toggle [V]
     app.add_event::<crate::input::MouseLookEvent>(); // Mouse look
     app.add_event::<crate::input::WeaponSwitchEvent>(); // Weapon switch (Digit1-9)
-    app.add_event::<voidrun_simulation::components::player_shooting::ToggleADSIntent>(); // ADS toggle (RMB)
+    app.add_event::<voidrun_simulation::shooting::ToggleADSIntent>(); // ADS toggle (RMB)
     // NOTE: WeaponSwitchIntent удалён, используется SwapActiveWeaponIntent из EquipmentPlugin
 
     // 2. Main schedule (spawn/attach/detach prefabs + player camera setup)

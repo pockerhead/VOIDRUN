@@ -15,6 +15,7 @@
 use godot::prelude::*;
 use godot::classes::{Area3D, IArea3D, CharacterBody3D};
 use bevy::prelude::Entity;
+use voidrun_simulation::logger;
 
 /// Collision info (хранится в projectile до обработки ECS)
 #[derive(Clone, Debug)]
@@ -110,7 +111,7 @@ impl GodotProjectile {
         self.speed = speed;
         self.damage = damage as u32;
 
-        voidrun_simulation::log(&format!(
+        logger::log(&format!(
             "Projectile setup: shooter={:?} dir={:?} speed={} dmg={}",
             self.shooter, self.direction, self.speed, self.damage
         ));
@@ -151,7 +152,7 @@ impl GodotProjectile {
             impact_normal: Vector3::ZERO, // Area3D не имеет normal (TODO: calculate from position)
         });
 
-        voidrun_simulation::log(&format!(
+        logger::log(&format!(
             "🛡️ Projectile hit shield: entity={}, pos={:?}",
             entity_id, impact_point
         ));
@@ -182,7 +183,7 @@ impl GodotProjectile {
             impact_normal: Vector3::ZERO, // Area3D не имеет normal
         });
 
-        voidrun_simulation::log(&format!(
+        logger::log(&format!(
             "🎯 Projectile hit body: instance_id={:?}",
             instance_id
         ));

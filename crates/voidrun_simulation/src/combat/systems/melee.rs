@@ -43,7 +43,7 @@ pub fn start_melee_attacks(
             stamina.consume(ATTACK_COST);
         }
 
-        crate::log(&format!(
+        crate::logger::log(&format!(
             "⚔️ ECS: Melee attack started (attacker: {:?}, windup: {:.2}s)",
             event.attacker, event.windup_duration
         ));
@@ -71,7 +71,7 @@ pub fn update_melee_attack_phases(
             let Some(new_phase) = attack_state.advance_phase() else {
                 // Attack complete (Idle) → remove component
                 commands.entity(entity).remove::<MeleeAttackState>();
-                crate::log(&format!("✅ ECS: Melee attack completed (entity: {:?})", entity));
+                crate::logger::log(&format!("✅ ECS: Melee attack completed (entity: {:?})", entity));
                 continue;
             };
 
@@ -88,7 +88,7 @@ pub fn update_melee_attack_phases(
                         duration: weapon.parry_window,
                     };
                     attack_state.phase_timer = weapon.parry_window;
-                    crate::log(&format!(
+                    crate::logger::log(&format!(
                         "⚔️ ECS: Windup → ActiveParryWindow ({:.3}s) (entity: {:?})",
                         weapon.parry_window, entity
                     ));
@@ -100,7 +100,7 @@ pub fn update_melee_attack_phases(
                         duration: hitbox_duration,
                     };
                     attack_state.phase_timer = hitbox_duration;
-                    crate::log(&format!(
+                    crate::logger::log(&format!(
                         "💥 ECS: ActiveParryWindow → ActiveHitbox ({:.3}s) (entity: {:?})",
                         hitbox_duration, entity
                     ));
@@ -110,7 +110,7 @@ pub fn update_melee_attack_phases(
                         duration: weapon.recovery_duration,
                     };
                     attack_state.phase_timer = weapon.recovery_duration;
-                    crate::log(&format!("🛡️ ECS: ActiveHitbox → Recovery (entity: {:?})", entity));
+                    crate::logger::log(&format!("🛡️ ECS: ActiveHitbox → Recovery (entity: {:?})", entity));
                 }
                 _ => {}
             }
@@ -144,7 +144,7 @@ pub fn process_melee_hits(
         if hit.was_parried {
             // Parried: 100% negation
             final_damage = 0;
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "🛡️ Melee hit PARRIED (attacker: {:?}, target: {:?})",
                 hit.attacker, hit.target
             ));
@@ -155,7 +155,7 @@ pub fn process_melee_hits(
         } else if hit.was_blocked {
             // Blocked: 70% reduction
             final_damage = (final_damage as f32 * 0.3) as u32;
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "🛡️ Melee hit BLOCKED (attacker: {:?}, target: {:?}, reduced damage: {})",
                 hit.attacker, hit.target, final_damage
             ));
@@ -185,7 +185,7 @@ pub fn process_melee_hits(
                 impact_normal: hit.impact_normal,
             });
 
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "💥 Melee damage dealt (attacker: {:?}, target: {:?}, damage: {}, applied: {:?}, HP: {})",
                 hit.attacker, hit.target, final_damage, applied, health.current
             ));
@@ -217,7 +217,7 @@ pub fn start_parry(
 
         // Check if weapon can parry
         if !weapon.can_parry() {
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "❌ ECS: {:?} cannot parry (weapon doesn't support it)",
                 intent.defender
             ));
@@ -235,12 +235,12 @@ pub fn start_parry(
 
         // Log based on parry type
         if let Some(attacker) = intent.attacker {
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "🛡️ ECS: Targeted parry started (defender: {:?}, attacker: {:?}, windup: {:.2}s)",
                 intent.defender, attacker, parry_windup
             ));
         } else {
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "🛡️ ECS: Idle parry started (defender: {:?}, windup: {:.2}s)",
                 intent.defender, parry_windup
             ));
@@ -284,7 +284,7 @@ pub fn update_parry_states(
                     // Get attacker entity (or None for idle parry)
                     let Some(attacker_entity) = parry_state.attacker else {
                         // Idle parry: просто проигрываем анимацию (no timing check)
-                        crate::log(&format!(
+                        crate::logger::log(&format!(
                             "🛡️ ECS: Idle parry completed (defender: {:?})",
                             defender
                         ));
@@ -295,7 +295,7 @@ pub fn update_parry_states(
 
                     // Targeted parry: get attacker's attack state
                     let Ok(attack_state) = attacks.get(attacker_entity) else {
-                        crate::log(&format!(
+                        crate::logger::log(&format!(
                             "❌ ECS: PARRY FAIL - attacker {:?} not found or not attacking",
                             attacker_entity
                         ));
@@ -316,13 +316,13 @@ pub fn update_parry_states(
                             .insert(StaggerState::new(weapon.stagger_duration, defender))
                             .remove::<MeleeAttackState>();
 
-                        crate::log(&format!(
+                        crate::logger::log(&format!(
                             "💥 ECS: PARRY SUCCESS! (defender: {:?}, attacker: {:?} staggered)",
                             defender, attacker_entity
                         ));
                     } else {
                         // ❌ PARRY FAIL - wrong timing
-                        crate::log(&format!(
+                        crate::logger::log(&format!(
                             "❌ ECS: PARRY FAIL - wrong timing (defender: {:?}, attacker phase: {:?})",
                             defender, attack_state.phase
                         ));
@@ -335,7 +335,7 @@ pub fn update_parry_states(
                 ParryPhase::Recovery { .. } => {
                     // Recovery ended → remove ParryState
                     commands.entity(defender).remove::<ParryState>();
-                    crate::log(&format!("⏱️ ECS: Parry recovery complete (entity: {:?})", defender));
+                    crate::logger::log(&format!("⏱️ ECS: Parry recovery complete (entity: {:?})", defender));
                 }
             }
         }
@@ -358,7 +358,7 @@ pub fn update_stagger_states(
         // Remove when stagger expires
         if stagger.timer <= 0.0 {
             commands.entity(entity).remove::<StaggerState>();
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "✅ ECS: Stagger ended (entity: {:?})",
                 entity
             ));
@@ -392,7 +392,7 @@ pub fn process_parry_delay_timers(
             // Remove timer component
             commands.entity(defender).remove::<ParryDelayTimer>();
 
-            crate::log(&format!(
+            crate::logger::log(&format!(
                 "⏰ ECS: Parry delay expired → ParryIntent (defender: {:?}, attacker: {:?})",
                 defender, delay_timer.attacker
             ));

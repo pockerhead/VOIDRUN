@@ -20,7 +20,3 @@ once_cell = "1.19.0"
 [lib]
 name = "voidrun_simulation"
 path = "src/lib.rs"
-
-[[bin]]
-name = "voidrun_simulation"
-path = "src/main.rs"

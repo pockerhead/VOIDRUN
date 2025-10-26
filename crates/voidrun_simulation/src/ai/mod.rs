@@ -73,7 +73,7 @@ pub fn sync_strategic_position_from_godot_events(
     for event in transform_events.read() {
         let (entity, position ) = match event {
             GodotTransformEvent::PostSpawn { entity, position } => {
-                crate::log(&format!("PostSpawn: entity {:?} at {:?}", entity, position));
+                crate::logger::log(&format!("PostSpawn: entity {:?} at {:?}", entity, position));
                 (*entity, Some(*position))
             }
             GodotTransformEvent::PositionChanged { entity, position } => (*entity, Some(*position))

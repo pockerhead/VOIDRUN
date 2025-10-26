@@ -9,6 +9,7 @@ use godot::classes::{
 };
 use godot::prelude::*;
 use godot::builtin::GString;
+use voidrun_simulation::logger;
 
 impl SimulationBridge {
     /// Создать NavigationRegion3D + NavMesh (baking из SceneTree children)
@@ -34,7 +35,7 @@ impl SimulationBridge {
         self.base_mut()
             .add_child(&nav_region.clone().upcast::<Node>());
 
-        voidrun_simulation::log("🔧 Baking NavMesh from SceneTree (StaticBody3D children)...");
+        logger::log("🔧 Baking NavMesh from SceneTree (StaticBody3D children)...");
 
         // 4. Bake NavMesh из SceneTree children (КРИТИЧНО: region должен быть в tree!)
         nav_region.bake_navigation_mesh(); // АСИНХРОННЫЙ baking из children
@@ -52,28 +53,28 @@ impl SimulationBridge {
 
         // Создаём callable из замыкания
         let check_callback = Callable::from_fn("check_navmesh_bake", move |_args| {
-            voidrun_simulation::log_error("⏰ Timer callback triggered!");
+            logger::log_error("⏰ Timer callback triggered!");
 
             let baked_mesh = nav_region_for_callback.get_navigation_mesh();
             if let Some(mesh) = baked_mesh {
                 let vertex_count = mesh.get_vertices().len();
                 let polygon_count = mesh.get_polygon_count();
-                voidrun_simulation::log_error(&format!(
+                logger::log_error(&format!(
                     "✅ NavMesh baked (after 2 sec): {} vertices, {} polygons",
                     vertex_count, polygon_count
                 ));
 
                 if polygon_count == 0 {
-                    voidrun_simulation::log_error(
+                    logger::log_error(
                         "❌ WARNING: NavMesh has 0 polygons! Check geometry/parameters",
                     );
                 } else {
-                    voidrun_simulation::log_error(
+                    logger::log_error(
                         "🎉 NavMesh baking SUCCESS - physical objects detected!",
                     );
                 }
             } else {
-                voidrun_simulation::log_error("❌ ERROR: Failed to bake NavMesh!");
+                logger::log_error("❌ ERROR: Failed to bake NavMesh!");
             }
             Variant::nil()
         });
@@ -84,7 +85,7 @@ impl SimulationBridge {
         // Запускаем timer
         timer.start();
 
-        voidrun_simulation::log_error(
+        logger::log_error(
             "✅ NavigationRegion3D ready, baking in progress (check in 2 sec)...",
         );
     }
@@ -108,7 +109,7 @@ impl SimulationBridge {
 
         self.base_mut().add_child(&camera.upcast::<Node>());
 
-        voidrun_simulation::log("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
+        logger::log("RTSCamera3D added - use WASD, RMB drag, mouse wheel");
     }
 
     /// Создать DebugOverlay (FPS counter, spawn buttons, F3 toggle)
@@ -142,6 +143,6 @@ impl SimulationBridge {
         // Добавляем canvas layer в сцену
         self.base_mut().add_child(&canvas_layer.upcast::<Node>());
 
-        voidrun_simulation::log("DebugOverlay created (F3 to toggle)");
+        logger::log("DebugOverlay created (F3 to toggle)");
     }
 }

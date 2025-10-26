@@ -19,7 +19,7 @@ use crate::{
     components::equipment::*,
     equipment::events::*,
     item_system::{ItemDefinitions, ItemInstance},
-    log, log_error,
+    logger::{log, log_error} ,
     Attachment, AttachmentType, WeaponStats,
 };
 
@@ -281,8 +281,8 @@ pub fn process_unequip_armor(
 pub fn process_use_consumable(
     mut events: EventReader<UseConsumableIntent>,
     mut consumables: Query<&mut ConsumableSlots>,
-    mut health: Query<&mut crate::components::actor::Health>,
-    mut stamina: Query<&mut crate::components::actor::Stamina>,
+    mut health: Query<&mut crate::actor::Health>,
+    mut stamina: Query<&mut crate::actor::Stamina>,
     definitions: Res<ItemDefinitions>,
 ) {
     for intent in events.read() {

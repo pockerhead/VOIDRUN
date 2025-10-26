@@ -71,7 +71,7 @@ fn test_two_npcs_fight_1000_ticks() {
         }
     }
 
-    crate::log("✓ Combat integration test: 1000 ticks completed without crash");
+    crate::logger::log("✓ Combat integration test: 1000 ticks completed without crash");
 }
 
 /// Test: детерминизм — 3 прогона с seed=42 дают идентичные результаты
@@ -95,7 +95,7 @@ fn test_combat_determinism_three_runs() {
         "Combat determinism failed: run 2 != run 3"
     );
 
-    crate::log(&format!("✓ Combat determinism: 3 runs with seed={} are identical", SEED));
+    crate::logger::log(&format!("✓ Combat determinism: 3 runs with seed={} are identical", SEED));
 }
 
 /// Test: health/stamina инварианты сохраняются
@@ -163,7 +163,7 @@ fn test_health_stamina_invariants() {
         }
     }
 
-    crate::log("✓ Health/Stamina invariants: 500 ticks, all checks passed");
+    crate::logger::log("✓ Health/Stamina invariants: 500 ticks, all checks passed");
 }
 
 // --- Helpers ---
