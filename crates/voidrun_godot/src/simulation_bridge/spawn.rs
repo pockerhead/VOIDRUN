@@ -32,6 +32,7 @@ pub fn spawn_melee_npc(
             combat::WeaponStats::melee_sword(), // ✅ Melee weapon (sword)
             MovementCommand::Idle,
             NavigationState::default(),
+            components::EnergyShield::basic(), // ✅ Energy shield (basic preset для тестов)
             ai::AIState::Idle,
             ai::AIConfig {
                 retreat_stamina_threshold: 0.2,
@@ -84,6 +85,7 @@ pub fn spawn_test_npc(
                 patrol_direction_change_interval: 3.0, // Каждые 3 сек новое направление
             },
             ai::SpottedEnemies::default(), // Godot VisionCone → GodotAIEvent → обновляет список
+            components::EnergyShield::basic(), // ✅ Energy shield (basic preset для тестов)
             Attachment {
                 prefab_path: "res://actors/test_pistol.tscn".to_string(),
                 attachment_point: "%RightHandAttachment".to_string(),

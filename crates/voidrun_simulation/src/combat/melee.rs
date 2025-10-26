@@ -348,6 +348,10 @@ pub struct MeleeHit {
     pub was_blocked: bool,
     /// Was attack parried? (damage negated 100%, attacker staggered)
     pub was_parried: bool,
+    /// Точка попадания (target body center, для VFX)
+    pub impact_point: Vec3,
+    /// Нормаль поверхности (attacker→target direction, для VFX)
+    pub impact_normal: Vec3,
 }
 
 /// Parry attempt initiated (player/AI wants to parry).
@@ -509,13 +513,13 @@ pub fn update_melee_attack_phases(
 /// Reads `MeleeHit` events, applies damage with modifiers:
 /// - Blocked: 70% damage reduction
 /// - Parried: 100% damage negation + stagger attacker
-/// - Normal: full damage
+/// - Normal: full damage (bypasses shield, slow kinetic)
 ///
-/// Generates `DamageDealt` events.
+/// Generates `DamageDealt` events with impact data.
 pub fn process_melee_hits(
     mut melee_hit_events: EventReader<MeleeHit>,
     mut damage_dealt_events: EventWriter<DamageDealt>,
-    mut healths: Query<&mut Health>,
+    mut healths: Query<(&mut Health, Option<&mut crate::components::EnergyShield>)>,
     _weapons: Query<&WeaponStats>,
 ) {
     for hit in melee_hit_events.read() {
@@ -547,25 +551,34 @@ pub fn process_melee_hits(
             ));
         }
 
-        // Apply damage
+        // Apply damage (melee bypasses shield)
         if final_damage > 0 {
-            if let Ok(mut health) = healths.get_mut(hit.target) {
-                health.take_damage(final_damage);
+            let Ok((mut health, mut shield_opt)) = healths.get_mut(hit.target) else {
+                continue;
+            };
 
-                // Generate DamageDealt event
-                damage_dealt_events.write(DamageDealt {
-                    attacker: hit.attacker,
-                    target: hit.target,
-                    damage: final_damage,
-                    source: crate::combat::DamageSource::Melee,
-                });
+            let applied = crate::combat::apply_damage_with_shield(
+                &mut health,
+                shield_opt.as_deref_mut(),
+                final_damage,
+                crate::combat::DamageSource::Melee,
+            );
 
-                crate::log(&format!(
-                    "💥 Melee damage dealt (attacker: {:?}, target: {:?}, damage: {}, health: {} → {})",
-                    hit.attacker, hit.target, final_damage,
-                    health.current + final_damage, health.current
-                ));
-            }
+            // Generate DamageDealt event with impact data
+            damage_dealt_events.write(DamageDealt {
+                attacker: hit.attacker,
+                target: hit.target,
+                damage: final_damage,
+                source: crate::combat::DamageSource::Melee,
+                applied_damage: applied,
+                impact_point: hit.impact_point,
+                impact_normal: hit.impact_normal,
+            });
+
+            crate::log(&format!(
+                "💥 Melee damage dealt (attacker: {:?}, target: {:?}, damage: {}, applied: {:?}, HP: {})",
+                hit.attacker, hit.target, final_damage, applied, health.current
+            ));
         }
     }
 }

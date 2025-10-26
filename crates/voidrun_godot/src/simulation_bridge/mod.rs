@@ -109,17 +109,17 @@ impl SimulationBridge {
         let world = app.world_mut();
         let mut commands = world.commands();
 
-        // spawn_melee_npc(&mut commands, (0.0, 0.0, 3.0), 1, 60);
+        spawn_test_npc(&mut commands, (0.0, 0.0, 3.0), 1, 60);
         spawn_test_npc(&mut commands, (25.0, 0.0, 6.0), 1, 60);
-        // spawn_melee_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
+        spawn_test_npc(&mut commands, (21.0, 0.0, 6.0), 1, 60);
 
-        // spawn_melee_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
+        spawn_test_npc(&mut commands, (0.0, 0.0, 0.0), 2, 60);
         spawn_test_npc(&mut commands, (-26.0, 0.0, -5.0), 2, 60);
-        // spawn_melee_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
+        spawn_test_npc(&mut commands, (-16.0, 0.0, -6.0), 2, 60);
 
-        // spawn_melee_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
+        spawn_test_npc(&mut commands, (3.0, 0.0, -6.0), 3, 60);
         spawn_test_npc(&mut commands, (2.0, 0.0, -5.0), 3, 60);
-        // spawn_melee_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
+        spawn_test_npc(&mut commands, (1.0, 0.0, -6.0), 3, 60);
 
         voidrun_simulation::log("✅ NPCs spawned successfully (9 NPCs, 3 factions)");
     }
@@ -152,6 +152,7 @@ impl SimulationBridge {
                     current: 100,
                     max: 100,
                 },
+                voidrun_simulation::components::EnergyShield::military(), // ✅ Energy shield (military preset для тестов)
                 voidrun_simulation::Stamina {
                     current: 100.0,
                     max: 100.0,

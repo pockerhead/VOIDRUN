@@ -27,6 +27,9 @@ pub struct VisualRegistry {
 
     /// AI state labels
     pub ai_state_labels: HashMap<Entity, Gd<godot::classes::Label3D>>,
+
+    /// Shield energy labels (только для entities с EnergyShield)
+    pub shield_labels: HashMap<Entity, Gd<godot::classes::Label3D>>,
 }
 
 /// Registry: маппинг (Entity, attachment_point) → Godot Node3D (attached prefabs)

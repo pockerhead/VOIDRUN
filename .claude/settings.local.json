@@ -10,7 +10,9 @@
       "Bash(cargo test -p voidrun_simulation equipment)",
       "Bash(cargo test --package voidrun_simulation item_system)",
       "Bash(cargo test --package voidrun_simulation equipment)",
-      "Bash(cargo clippy --package voidrun_simulation)"
+      "Bash(cargo clippy --package voidrun_simulation)",
+      "Bash(cargo test:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

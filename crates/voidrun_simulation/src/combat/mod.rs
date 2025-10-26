@@ -21,7 +21,10 @@ pub mod weapon;
 pub mod weapon_stats;
 
 // Re-export основных типов
-pub use damage::{DamageDealt, DamageSource, EntityDied, Dead, DespawnAfter, calculate_damage};
+pub use damage::{
+    DamageDealt, DamageSource, AppliedDamage, EntityDied, Dead, DespawnAfter,
+    calculate_damage, apply_damage_with_shield, shield_recharge_system,
+};
 pub use melee::{
     // Components
     MeleeAttackState, AttackPhase, ParryState, ParryPhase, StaggerState, ParryDelayTimer,
@@ -34,7 +37,7 @@ pub use melee::{
     start_parry, update_parry_states, update_stagger_states, process_parry_delay_timers,
 };
 pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
-pub use weapon::{WeaponFired, WeaponFireIntent, ProjectileHit};
+pub use weapon::{WeaponFired, WeaponFireIntent, ProjectileHit, ProjectileShieldHit, process_projectile_shield_hits};
 pub use weapon_stats::{WeaponStats, WeaponType, update_weapon_cooldowns};
 
 /// Type of attack (for AI decision-making and telegraph events).
@@ -68,6 +71,7 @@ impl Plugin for CombatPlugin {
             .add_event::<WeaponFireIntent>()
             .add_event::<WeaponFired>()
             .add_event::<ProjectileHit>()
+            .add_event::<ProjectileShieldHit>() // Shield collision events
             .add_event::<MeleeAttackIntent>()
             .add_event::<MeleeAttackStarted>()
             .add_event::<MeleeHit>()
@@ -99,15 +103,17 @@ impl Plugin for CombatPlugin {
                 // Фаза 4: Damage application (from Godot events + projectiles + melee hits)
                 damage::apply_damage,
                 weapon::process_projectile_hits,
+                weapon::process_projectile_shield_hits, // Shield collision events → damage shield
                 process_melee_hits,
 
                 // Фаза 5: Death handling
                 damage::disable_ai_on_death,
                 damage::despawn_after_timeout,
 
-                // Фаза 6: Stamina management
+                // Фаза 6: Stamina management + Shield recharge
                 stamina::regenerate_stamina,
                 stamina::detect_exhaustion,
+                damage::shield_recharge_system,
 
                 // Projectile cleanup — в Godot (GodotProjectile::_physics_process)
             )

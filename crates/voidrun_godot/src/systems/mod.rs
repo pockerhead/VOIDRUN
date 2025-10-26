@@ -9,6 +9,7 @@ pub mod ai_melee_combat_decision;
 pub mod player_camera_system;
 pub mod weapon_switch;
 pub mod player_shooting;
+pub mod shield_vfx_system;
 
 pub use visual_registry::{VisualRegistry, AttachmentRegistry, SceneRoot};
 pub use vision_system::VisionTracking;
@@ -17,6 +18,7 @@ pub use visual_sync::{
     spawn_actor_visuals_main_thread,
     sync_health_labels_main_thread,
     sync_stamina_labels_main_thread,
+    sync_shield_labels_main_thread,
     sync_ai_state_labels_main_thread,
     disable_collision_on_death_main_thread,
     despawn_actor_visuals_main_thread,
@@ -36,7 +38,8 @@ pub use weapon_system::{
     weapon_aim_main_thread,
     process_ranged_attack_intents_main_thread,
     weapon_fire_main_thread,
-    projectile_collision_system_main_thread, // NEW: Event-driven projectile collision
+    projectile_collision_system_main_thread, // Event-driven projectile collision
+    projectile_shield_collision_main_thread, // Shield collision detection (Area3D)
 };
 
 pub use melee_system::{
@@ -49,6 +52,7 @@ pub use melee_system::{
 
 pub use ai_melee_combat_decision::{
     ai_melee_combat_decision_main_thread,
+    WaitingForOpening,
 };
 
 pub use movement_system::{
@@ -76,6 +80,12 @@ pub use player_shooting::{
     process_ads_toggle,
     update_ads_position_transition,
     player_hip_fire_aim,
+};
+
+pub use shield_vfx_system::{
+    update_shield_energy_vfx_main_thread,
+    update_shield_ripple_vfx_main_thread, // Ripple VFX on ProjectileShieldHit
+    update_shield_collision_state_main_thread, // Shield collision enable/disable based on is_active
 };
 
 /// Godot delta time (обновляется каждый frame в SimulationBridge::process)

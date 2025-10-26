@@ -29,12 +29,14 @@ pub fn register_systems(app: &mut App) {
         process_ranged_attack_intents_main_thread,
         process_player_weapon_switch, // Weapon switch (Godot input → SwapActiveWeaponIntent)
         // process_weapon_switch удалён — в voidrun_simulation::EquipmentPlugin
-        projectile_collision_system_main_thread, // NEW: Event-driven projectile collision processing
+        projectile_collision_system_main_thread, // Event-driven projectile → body collision
+        projectile_shield_collision_main_thread, // Shield collision detection (Area3D)
         setup_player_camera,           // Setup player camera при spawn
         spawn_actor_visuals_main_thread,
         sync_ai_state_labels_main_thread,
         sync_health_labels_main_thread,
         sync_stamina_labels_main_thread,
+        sync_shield_labels_main_thread,
         update_combat_targets_main_thread, // Dynamic target switching (closest spotted enemy)
         update_follow_entity_targets_main_thread,
         weapon_aim_main_thread,
@@ -43,6 +45,10 @@ pub fn register_systems(app: &mut App) {
         process_ads_toggle,
         update_ads_position_transition,
         player_hip_fire_aim,
+        // Shield VFX
+        update_shield_energy_vfx_main_thread,
+        update_shield_ripple_vfx_main_thread, // Ripple VFX on ProjectileShieldHit
+        update_shield_collision_state_main_thread, // Shield collision enable/disable based on is_active
     };
 
     use crate::systems::weapon_system::detect_melee_windups_main_thread;
@@ -82,7 +88,7 @@ pub fn register_systems(app: &mut App) {
             .chain(),
     );
 
-    // 4. Update schedule - Input + Camera + Labels + Death handling + Weapon Switch
+    // 4. Update schedule - Input + Camera + Labels + Death handling + Weapon Switch + Shield VFX
     app.add_systems(
         Update,
         (
@@ -100,7 +106,11 @@ pub fn register_systems(app: &mut App) {
             apply_retreat_velocity_main_thread,       // RetreatFrom → backpedal + face target
             sync_health_labels_main_thread,
             sync_stamina_labels_main_thread,
+            sync_shield_labels_main_thread,
             sync_ai_state_labels_main_thread,
+            update_shield_energy_vfx_main_thread,     // Shield energy → shader uniform (visual feedback)
+            update_shield_ripple_vfx_main_thread,     // Shield ripple VFX on hit (ProjectileShieldHit events)
+            update_shield_collision_state_main_thread, // Shield collision enable/disable based on is_active
             disable_collision_on_death_main_thread, // Отключение collision + gray + DespawnAfter
             despawn_actor_visuals_main_thread, // Удаление Godot nodes для despawned entities
         ),
@@ -113,7 +123,8 @@ pub fn register_systems(app: &mut App) {
             weapon_aim_main_thread,            // Aim RightHand at target
             process_ranged_attack_intents_main_thread, // WeaponFireIntent → tactical validation → WeaponFired
             weapon_fire_main_thread,                 // WeaponFired → spawn GodotProjectile
-            projectile_collision_system_main_thread, // NEW: Process projectile collisions (event-driven)
+            projectile_collision_system_main_thread, // Projectile → body collision (event-driven)
+            projectile_shield_collision_main_thread, // Projectile → shield collision (Area3D)
             ai_melee_combat_decision_main_thread, // Unified AI melee combat decision (attack/parry/wait)
             process_melee_attack_intents_main_thread, // MeleeAttackIntent → tactical validation → MeleeAttackStarted
             execute_melee_attacks_main_thread, // MeleeAttackState phases → animation + hitbox

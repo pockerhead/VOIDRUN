@@ -1,6 +1,7 @@
-[gd_scene load_steps=18 format=3 uid="uid://b11myb8dfjdc6"]
+[gd_scene load_steps=22 format=3 uid="uid://b11myb8dfjdc6"]
 
 [ext_resource type="Shape3D" uid="uid://chinlvaytthss" path="res://resources/shapes/vision_con.tres" id="1_6ks1i"]
+[ext_resource type="Shader" path="res://shaders/shield_shader.gdshader" id="shield_shader"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_6ks1i"]
 size = Vector3(0.715, 0.945, 0.475)
@@ -236,6 +237,23 @@ height = 0.6
 [sub_resource type="BoxMesh" id="BoxMesh_x3k1a"]
 size = Vector3(0.045, 0.055, 0.135)
 
+[sub_resource type="SphereShape3D" id="SphereShape3D_shield"]
+radius = 1.2
+
+[sub_resource type="SphereMesh" id="SphereMesh_shield"]
+radius = 1.2
+height = 2.4
+radial_segments = 32
+rings = 16
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_shield"]
+render_priority = 0
+shader = ExtResource("shield_shader")
+shader_parameter/shield_color = Vector3(0.3, 0.6, 1)
+shader_parameter/energy_percent = 1.0
+shader_parameter/last_hit_pos = Vector3(0, 0, 0)
+shader_parameter/last_hit_time = -999.0
+
 [node name="Actor" type="CharacterBody3D"]
 collision_layer = 2
 
@@ -304,3 +322,17 @@ skeleton = NodePath("../../../..")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.064743936, -0.159)
 mesh = SubResource("BoxMesh_x3k1a")
 skeleton = NodePath("../../../..")
+
+[node name="ShieldSphere" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+collision_layer = 16
+collision_mask = 8
+monitorable = true
+monitoring = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ShieldSphere"]
+shape = SubResource("SphereShape3D_shield")
+
+[node name="ShieldMesh" type="MeshInstance3D" parent="ShieldSphere"]
+mesh = SubResource("SphereMesh_shield")
+surface_material_override/0 = SubResource("ShaderMaterial_shield")

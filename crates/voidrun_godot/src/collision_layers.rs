@@ -41,8 +41,11 @@ pub const COLLISION_LAYER_ENVIRONMENT: u32 = 0b100; // 4
 /// Layer 4: Projectiles (CharacterBody3D — bullets)
 pub const COLLISION_LAYER_PROJECTILES: u32 = 0b1000; // 8
 
-/// Layer 5: Corpses (dead actors — лежат на земле, не блокируют живых)
-pub const COLLISION_LAYER_CORPSES: u32 = 0b10000; // 16
+/// Layer 5: Shields (StaticBody3D — energy shield spheres)
+pub const COLLISION_LAYER_SHIELDS: u32 = 0b10000; // 16
+
+/// Layer 6: Corpses (dead actors — лежат на земле, не блокируют живых)
+pub const COLLISION_LAYER_CORPSES: u32 = 0b100000; // 32
 
 // ============================================================================
 // Mask Битовые Маски (с чем объект коллидирует)
@@ -53,16 +56,23 @@ pub const COLLISION_LAYER_CORPSES: u32 = 0b10000; // 16
 /// Используется для CharacterBody3D actors (player/NPC movement).
 pub const COLLISION_MASK_ACTORS: u32 = COLLISION_LAYER_ACTORS | COLLISION_LAYER_ENVIRONMENT;
 
-/// Mask: Projectiles collide with Actors + Environment
+/// Mask: Projectiles collide with Actors + Environment + Shields
 ///
 /// Используется для снарядов (bullets).
 /// НЕ коллидируют с другими projectiles (слой 4 отсутствует в маске).
-pub const COLLISION_MASK_PROJECTILES: u32 = COLLISION_LAYER_ACTORS | COLLISION_LAYER_ENVIRONMENT;
+pub const COLLISION_MASK_PROJECTILES: u32 = COLLISION_LAYER_ACTORS | COLLISION_LAYER_ENVIRONMENT | COLLISION_LAYER_SHIELDS;
 
 /// Mask: Raycast для LOS check (Actors + Environment)
 ///
 /// Используется для line-of-sight проверок (AI, weapons).
 pub const COLLISION_MASK_RAYCAST_LOS: u32 = COLLISION_LAYER_ACTORS | COLLISION_LAYER_ENVIRONMENT;
+
+/// Mask: Shields DON'T collide actively (passive collision)
+///
+/// Используется для StaticBody3D shield spheres.
+/// Shield НЕ коллидит ни с чем активно (mask = 0), но Projectiles детектируют Shield.
+/// Projectiles останавливаются на Shield благодаря своей collision mask.
+pub const COLLISION_MASK_SHIELDS: u32 = 0;
 
 /// Mask: Corpses collide with Environment only
 ///
@@ -80,6 +90,7 @@ pub fn get_layer_name(layer_bits: u32) -> &'static str {
         COLLISION_LAYER_ACTORS => "Actors",
         COLLISION_LAYER_ENVIRONMENT => "Environment",
         COLLISION_LAYER_PROJECTILES => "Projectiles",
+        COLLISION_LAYER_SHIELDS => "Shields",
         COLLISION_LAYER_CORPSES => "Corpses",
         _ => "Unknown",
     }

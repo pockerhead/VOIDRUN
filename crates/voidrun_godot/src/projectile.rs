@@ -5,13 +5,15 @@
 //! - ECS получает только ProjectileHit event для damage calculation
 //! - Projectile НЕ хранится в ECS (tactical layer only)
 //!
-//! # Refactored Architecture (event-driven)
+//! # Refactored Architecture (Area3D signal-based)
+//! - Projectile = Area3D (детектирует shields + bodies)
+//! - Signal area_entered → shield collision
+//! - Signal body_entered → actor hit
 //! - Collision info хранится IN projectile (не в global queue)
 //! - GodotProjectileRegistry tracks all projectiles
-//! - Collision processing через dedicated ECS system
 
 use godot::prelude::*;
-use godot::classes::{CharacterBody3D, ICharacterBody3D};
+use godot::classes::{Area3D, IArea3D, CharacterBody3D};
 use bevy::prelude::Entity;
 
 /// Collision info (хранится в projectile до обработки ECS)
@@ -22,11 +24,19 @@ pub struct ProjectileCollisionInfo {
     pub impact_normal: Vector3,  // Для VFX (spark direction, shield ripple, decals)
 }
 
-/// Projectile — управляется Godot physics
+/// Shield collision info (separate from body collision)
+#[derive(Clone, Debug)]
+pub struct ProjectileShieldCollisionInfo {
+    pub target_entity_id: u64, // Entity ID of shield owner (from StaticBody3D parent metadata)
+    pub impact_point: Vector3,
+    pub impact_normal: Vector3,  // Для ripple VFX direction
+}
+
+/// Projectile — управляется Godot Area3D (signal-based collision)
 #[derive(GodotClass)]
-#[class(base=CharacterBody3D)]
+#[class(base=Area3D)]
 pub struct GodotProjectile {
-    base: Base<CharacterBody3D>,
+    base: Base<Area3D>,
 
     /// Кто выстрелил (для предотвращения self-hit + damage attribution)
     pub shooter: Entity,
@@ -45,11 +55,14 @@ pub struct GodotProjectile {
 
     /// Collision info (хранится в projectile, обрабатывается ECS системой)
     pub collision_info: Option<ProjectileCollisionInfo>,
+
+    /// Shield collision info (separate detection via Area3D overlap)
+    pub shield_collision_info: Option<ProjectileShieldCollisionInfo>,
 }
 
 #[godot_api]
-impl ICharacterBody3D for GodotProjectile {
-    fn init(base: Base<CharacterBody3D>) -> Self {
+impl IArea3D for GodotProjectile {
+    fn init(base: Base<Area3D>) -> Self {
         Self {
             base,
             shooter: Entity::PLACEHOLDER,
@@ -58,65 +71,26 @@ impl ICharacterBody3D for GodotProjectile {
             damage: 15,
             lifetime: 5.0,
             collision_info: None,
+            shield_collision_info: None,
         }
     }
 
-    fn physics_process(&mut self, delta: f64) {
-        // Debug: проверяем что physics_process вызывается
-        static mut FRAME_COUNT: u32 = 0;
-        unsafe {
-            FRAME_COUNT += 1;
-            if FRAME_COUNT % 60 == 0 {
-                voidrun_simulation::log(&format!(
-                    "Projectile physics_process running (lifetime={:.1}s)",
-                    self.lifetime
-                ));
-            }
-        }
+    fn ready(&mut self) {
+        // Подключаем signals для collision detection
+        let callable_area = self.base().callable("on_area_entered");
+        self.base_mut().connect("area_entered", &callable_area);
 
-        // 1. Двигаем projectile
-        let velocity = self.direction * self.speed;
-        self.base_mut().set_velocity(velocity);
+        let callable_body = self.base().callable("on_body_entered");
+        self.base_mut().connect("body_entered", &callable_body);
+    }
 
-        let collision = self.base_mut().move_and_collide(velocity * delta as f32);
+    fn process(&mut self, delta: f64) {
+        // 1. Двигаем projectile (простое линейное движение)
+        let velocity = self.direction * self.speed * delta as f32;
+        let current_pos = self.base().get_global_position();
+        self.base_mut().set_global_position(current_pos + velocity);
 
-        // Debug: логируем что вернул move_and_collide
-        static mut COLLISION_CHECK_COUNT: u32 = 0;
-        unsafe {
-            COLLISION_CHECK_COUNT += 1;
-            if COLLISION_CHECK_COUNT % 60 == 0 {
-                let has_collision = collision.is_some();
-                voidrun_simulation::log(&format!(
-                    "move_and_collide returned: has_collision={}",
-                    has_collision
-                ));
-            }
-        }
-
-        // 2. Store collision info (НЕ пушим в queue!)
-        if let Some(godot_collision) = collision {
-            if let Some(collider_node) = godot_collision.get_collider() {
-                let instance_id = collider_node.instance_id();
-                let normal = godot_collision.get_normal();
-
-                // ✅ Store collision info IN projectile
-                self.collision_info = Some(ProjectileCollisionInfo {
-                    target_instance_id: instance_id,
-                    impact_point: self.base().get_global_position(),
-                    impact_normal: normal,
-                });
-
-                voidrun_simulation::log(&format!(
-                    "🎯 Projectile stored collision: instance_id={:?}, normal={:?}",
-                    instance_id, normal
-                ));
-
-                // NOTE: Projectile НЕ удаляется здесь!
-                // ECS система projectile_collision_system_main_thread удалит после обработки.
-            }
-        }
-
-        // 3. Уменьшаем lifetime
+        // 2. Уменьшаем lifetime
         self.lifetime -= delta as f32;
 
         if self.lifetime <= 0.0 {
@@ -140,5 +114,79 @@ impl GodotProjectile {
             "Projectile setup: shooter={:?} dir={:?} speed={} dmg={}",
             self.shooter, self.direction, self.speed, self.damage
         ));
+    }
+
+    /// Signal handler: Area3D entered (shield collision)
+    #[func]
+    fn on_area_entered(&mut self, area: Gd<Area3D>) {
+        // Проверяем это shield (Layer 16)
+        if area.get_collision_layer() & crate::collision_layers::COLLISION_LAYER_SHIELDS == 0 {
+            return; // Не shield
+        }
+
+        // Получаем entity_id владельца shield (parent Actor node)
+        let Some(parent) = area.get_parent() else {
+            return;
+        };
+
+        if !parent.has_meta("entity_id") {
+            return;
+        }
+
+        let entity_id_variant = parent.get_meta("entity_id");
+        let Ok(entity_id) = entity_id_variant.try_to::<i64>() else {
+            return;
+        };
+
+        // Проверка self-hit
+        if Entity::from_raw(entity_id as u32) == self.shooter {
+            return; // Игнорируем свой щит
+        }
+
+        // Store shield collision info
+        let impact_point = self.base().get_global_position();
+        self.shield_collision_info = Some(ProjectileShieldCollisionInfo {
+            target_entity_id: entity_id as u64,
+            impact_point,
+            impact_normal: Vector3::ZERO, // Area3D не имеет normal (TODO: calculate from position)
+        });
+
+        voidrun_simulation::log(&format!(
+            "🛡️ Projectile hit shield: entity={}, pos={:?}",
+            entity_id, impact_point
+        ));
+
+        // НЕ удаляем projectile сразу! ECS система обработает collision и удалит позже
+    }
+
+    /// Signal handler: Body entered (actor collision)
+    #[func]
+    fn on_body_entered(&mut self, body: Gd<CharacterBody3D>) {
+        let instance_id = body.instance_id();
+
+        // Проверка self-hit через metadata (если есть)
+        if body.has_meta("entity_id") {
+            let entity_id_variant = body.get_meta("entity_id");
+            if let Ok(entity_id) = entity_id_variant.try_to::<i64>() {
+                if Entity::from_raw(entity_id as u32) == self.shooter {
+                    return; // Игнорируем своё тело
+                }
+            }
+        }
+
+        // Store body collision info
+        let impact_point = self.base().get_global_position();
+        self.collision_info = Some(ProjectileCollisionInfo {
+            target_instance_id: instance_id,
+            impact_point,
+            impact_normal: Vector3::ZERO, // Area3D не имеет normal
+        });
+
+        voidrun_simulation::log(&format!(
+            "🎯 Projectile hit body: instance_id={:?}",
+            instance_id
+        ));
+
+        // НЕ удаляем projectile сразу! ECS система обработает collision и удалит позже
     }
 }

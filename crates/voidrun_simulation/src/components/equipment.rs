@@ -252,6 +252,7 @@ pub struct Armor {
 /// - Melee полностью игнорирует щит (slow kinetic)
 /// - Recharge delay после получения урона
 /// - Recharge rate применяется вне боя
+/// - **Hysteresis:** активация при 50% энергии (не сразу при >0%)
 ///
 /// # Usage
 /// - Всегда активен (пассивный компонент)
@@ -275,6 +276,13 @@ pub struct EnergyShield {
     pub velocity_threshold: f32,
     /// Timer для recharge delay
     pub recharge_timer: f32,
+    /// Shield active state (hysteresis logic)
+    ///
+    /// Деактивация: при 0% энергии
+    /// Активация: только при достижении 50% (activation_threshold)
+    pub is_active: bool,
+    /// Activation threshold (0.0-1.0, обычно 0.5 = 50%)
+    pub activation_threshold: f32,
 }
 
 impl Default for EnergyShield {
@@ -286,6 +294,8 @@ impl Default for EnergyShield {
             recharge_delay: 2.0,
             velocity_threshold: 5.0, // 5 м/с threshold
             recharge_timer: 0.0,
+            is_active: true,           // Начинаем с активного щита (full energy)
+            activation_threshold: 0.5, // 50% для активации (hysteresis)
         }
     }
 }
@@ -300,6 +310,8 @@ impl EnergyShield {
             recharge_delay,
             velocity_threshold: 5.0,
             recharge_timer: 0.0,
+            is_active: true,           // Full energy = active
+            activation_threshold: 0.5, // 50% threshold
         }
     }
 
@@ -313,9 +325,33 @@ impl EnergyShield {
         Self::new(200.0, 10.0, 3.0)
     }
 
-    /// Проверить что shield активен (current > 0)
+    /// Проверить что shield активен (с учётом hysteresis)
+    ///
+    /// Деактивация: при 0% энергии
+    /// Активация: только при достижении activation_threshold (обычно 50%)
     pub fn is_active(&self) -> bool {
-        self.current_energy > 0.0
+        self.is_active
+    }
+
+    /// Update active state (hysteresis logic)
+    ///
+    /// Вызывается после tick() или take_damage() для обновления is_active флага.
+    ///
+    /// # Hysteresis behavior:
+    /// - Деактивация: current_energy <= 0
+    /// - Активация: current_energy >= (max_energy * activation_threshold)
+    /// - Иначе: сохраняем текущее состояние
+    pub fn update_active_state(&mut self) {
+        let energy_percent = self.current_energy / self.max_energy;
+
+        if self.current_energy <= 0.0 {
+            // Полностью разряжен → деактивация
+            self.is_active = false;
+        } else if energy_percent >= self.activation_threshold {
+            // Достигли threshold (50%) → активация
+            self.is_active = true;
+        }
+        // Иначе сохраняем текущее состояние (hysteresis)
     }
 
     /// Получить урон (уменьшить energy)
@@ -479,6 +515,44 @@ mod tests {
         assert_eq!(shield.recharge_timer, 0.0);
         // 0.5s recharge: 150.0 + 10.0 * 0.5 = 155.0
         assert!((shield.current_energy - 155.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_shield_hysteresis_logic() {
+        let mut shield = EnergyShield::basic(); // 200 max energy, 50% activation threshold
+        assert!(shield.is_active());
+        assert_eq!(shield.current_energy, 200.0);
+
+        // Полностью разрядить щит
+        shield.take_damage(200.0);
+        assert_eq!(shield.current_energy, 0.0);
+        shield.update_active_state();
+        assert!(!shield.is_active(), "Shield должен деактивироваться при 0% энергии");
+
+        // Зарядить до 40% — щит НЕ активируется (hysteresis)
+        shield.current_energy = 80.0; // 40% от 200
+        shield.update_active_state();
+        assert!(!shield.is_active(), "Shield НЕ должен активироваться при 40% (< threshold 50%)");
+
+        // Зарядить до 49% — щит НЕ активируется
+        shield.current_energy = 98.0;
+        shield.update_active_state();
+        assert!(!shield.is_active(), "Shield НЕ должен активироваться при 49%");
+
+        // Зарядить до 50% — щит активируется (достигли activation_threshold)
+        shield.current_energy = 100.0; // Ровно 50%
+        shield.update_active_state();
+        assert!(shield.is_active(), "Shield должен активироваться при 50% (достигли threshold)");
+
+        // Разрядить до 30% — щит ОСТАЁТСЯ активным (hysteresis, не упал до 0)
+        shield.current_energy = 60.0;
+        shield.update_active_state();
+        assert!(shield.is_active(), "Shield должен оставаться активным при 30% (hysteresis)");
+
+        // Полностью разрядить снова — деактивация
+        shield.current_energy = 0.0;
+        shield.update_active_state();
+        assert!(!shield.is_active(), "Shield должен деактивироваться при 0%");
     }
 
     #[test]

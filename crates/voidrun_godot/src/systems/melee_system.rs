@@ -264,7 +264,33 @@ pub fn poll_melee_hitboxes_main_thread(
                         continue;
                     }
 
-                    // Generate MeleeHit event
+                    // Calculate impact data for VFX
+                    let (impact_point, impact_normal) = if let Some(target_node) = visuals.visuals.get(&target_entity) {
+                        let target_pos = target_node.get_global_position();
+
+                        // Impact point = target body center (Y+0.8 для torso)
+                        let impact_point = bevy::prelude::Vec3::new(
+                            target_pos.x,
+                            target_pos.y + 0.8,
+                            target_pos.z,
+                        );
+
+                        // Impact normal = attacker → target direction
+                        let impact_normal = if let Some(attacker_node) = visuals.visuals.get(&attacker) {
+                            let attacker_pos = attacker_node.get_global_position();
+                            let direction = (target_pos - attacker_pos).normalized();
+                            bevy::prelude::Vec3::new(direction.x, direction.y, direction.z)
+                        } else {
+                            bevy::prelude::Vec3::Z // Fallback
+                        };
+
+                        (impact_point, impact_normal)
+                    } else {
+                        // Fallback если target visual не найден
+                        (bevy::prelude::Vec3::ZERO, bevy::prelude::Vec3::Z)
+                    };
+
+                    // Generate MeleeHit event with impact data
                     // TODO: Calculate actual damage from weapon stats
                     melee_hit_events.write(voidrun_simulation::combat::MeleeHit {
                         attacker,
@@ -272,14 +298,16 @@ pub fn poll_melee_hitboxes_main_thread(
                         damage: 20, // TODO: Get from WeaponStats
                         was_blocked: false, // TODO: Check target block state
                         was_parried: false, // TODO: Check target parry state
+                        impact_point,
+                        impact_normal,
                     });
 
                     // Track entity as hit (prevent multiple hits on same target)
                     attack_state.hit_entities.push(target_entity);
 
                     voidrun_simulation::log(&format!(
-                        "💥 Godot: Melee hit detected! (attacker: {:?}, target: {:?})",
-                        attacker, target_entity
+                        "💥 Godot: Melee hit detected! (attacker: {:?}, target: {:?}) at {:?}",
+                        attacker, target_entity, impact_point
                     ));
 
                     // Continue to allow cleave damage (multi-target hits)

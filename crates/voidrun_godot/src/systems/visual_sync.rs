@@ -21,12 +21,12 @@ use crate::systems::visual_registry::VisualRegistry;
 /// NAMING: `_main_thread` суффикс = Godot API calls (NonSend resources)
 /// ADR-005: Spawn на StrategicPosition + PostSpawn коррекция
 pub fn spawn_actor_visuals_main_thread(
-    query: Query<(Entity, &Actor, &Health, &Stamina, &voidrun_simulation::StrategicPosition, &voidrun_simulation::PrefabPath), Added<Actor>>,
+    query: Query<(Entity, &Actor, &Health, &Stamina, Option<&voidrun_simulation::components::EnergyShield>, &voidrun_simulation::StrategicPosition, &voidrun_simulation::PrefabPath), Added<Actor>>,
     mut visuals: NonSendMut<VisualRegistry>,
     scene_root: NonSend<crate::systems::SceneRoot>,
     mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
-    for (entity, actor, health, stamina, strategic_pos, prefab_path) in query.iter() {
+    for (entity, actor, health, stamina, shield_opt, strategic_pos, prefab_path) in query.iter() {
         // Загружаем TSCN prefab из PrefabPath компонента
         let mut loader = ResourceLoader::singleton();
         let scene = loader.load_ex(&prefab_path.path).done();
@@ -64,6 +64,10 @@ pub fn spawn_actor_visuals_main_thread(
         let spawn_pos = strategic_pos.to_world_position(0.5); // Y=0.5 (над землёй)
         actor_node.set_position(Vector3::new(spawn_pos.x, spawn_pos.y, spawn_pos.z));
 
+        // КРИТИЧНО: Устанавливаем entity_id metadata для collision detection (shields, projectiles)
+        let entity_id_variant = (entity.to_bits() as i64).to_variant();
+        actor_node.set_meta("entity_id", &entity_id_variant);
+
         // Цвет фракции — красим все MeshInstance3D дочерние ноды
         let faction_color = match actor.faction_id {
             1 => Color::from_rgb(0.2, 0.6, 1.0), // Blue
@@ -81,23 +85,45 @@ pub fn spawn_actor_visuals_main_thread(
             }
         }
 
-        // AI state label (над головой, выше health)
+        // КРИТИЧНО: Создаём unique shield material для каждого актора
+        // (иначе все щиты будут share один material и гаснуть одновременно)
+        if let Some(shield_sphere) = actor_node.try_get_node_as::<Node3D>("ShieldSphere") {
+            if let Some(mut shield_mesh) = shield_sphere.try_get_node_as::<godot::classes::MeshInstance3D>("ShieldMesh") {
+                // Получаем текущий material (shared SubResource)
+                if let Some(shared_material) = shield_mesh.get_surface_override_material(0) {
+                    // Clone material (создаём unique instance)
+                    if let Some(duplicated) = shared_material.duplicate() {
+                        // Cast Gd<Resource> → Gd<Material>
+                        if let Ok(unique_material) = duplicated.try_cast::<godot::classes::Material>() {
+                            shield_mesh.set_surface_override_material(0, &unique_material);
+
+                            voidrun_simulation::log(&format!(
+                                "🛡️ Created unique shield material for entity {:?}",
+                                entity
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // AI state label (над головой, самый верхний)
         let mut ai_label = Label3D::new_alloc();
         let ai_text = format!("AI");
         ai_label.set_text(ai_text.as_str());
         ai_label.set_pixel_size(0.004);
         ai_label.set_billboard_mode(BillboardMode::ENABLED);
-        ai_label.set_position(Vector3::new(0.0, 1.4, 0.0));
+        ai_label.set_position(Vector3::new(0.0, 2.2, 0.0)); // Поднято с 1.4 до 2.2
         ai_label.set_modulate(Color::from_rgb(0.8, 0.8, 0.2)); // Желтый
         actor_node.add_child(&ai_label.clone().upcast::<Node>());
 
-        // Health label над головой
+        // Health label под AI
         let mut health_label = Label3D::new_alloc();
         let health_text = format!("HP: {}/{}", health.current, health.max);
         health_label.set_text(health_text.as_str());
         health_label.set_pixel_size(0.005);
         health_label.set_billboard_mode(BillboardMode::ENABLED);
-        health_label.set_position(Vector3::new(0.0, 1.2, 0.0));
+        health_label.set_position(Vector3::new(0.0, 2.0, 0.0)); // Поднято с 1.2 до 2.0
         actor_node.add_child(&health_label.clone().upcast::<Node>());
 
         // Stamina label под health
@@ -106,9 +132,24 @@ pub fn spawn_actor_visuals_main_thread(
         stamina_label.set_text(stamina_text.as_str());
         stamina_label.set_pixel_size(0.004);
         stamina_label.set_billboard_mode(BillboardMode::ENABLED);
-        stamina_label.set_position(Vector3::new(0.0, 1.0, 0.0));
+        stamina_label.set_position(Vector3::new(0.0, 1.8, 0.0)); // Поднято с 1.0 до 1.8
         stamina_label.set_modulate(Color::from_rgb(0.2, 0.8, 0.2)); // Зелёный
         actor_node.add_child(&stamina_label.clone().upcast::<Node>());
+
+        // Shield label под stamina (только если есть EnergyShield компонент)
+        let shield_label_opt = if let Some(shield) = shield_opt {
+            let mut shield_label = Label3D::new_alloc();
+            let shield_text = format!("Shield: {:.0}/{:.0}", shield.current_energy, shield.max_energy);
+            shield_label.set_text(shield_text.as_str());
+            shield_label.set_pixel_size(0.004);
+            shield_label.set_billboard_mode(BillboardMode::ENABLED);
+            shield_label.set_position(Vector3::new(0.0, 1.6, 0.0)); // Поднято с 0.8 до 1.6
+            shield_label.set_modulate(Color::from_rgb(0.3, 0.6, 1.0)); // Синий (как щит)
+            actor_node.add_child(&shield_label.clone().upcast::<Node>());
+            Some(shield_label)
+        } else {
+            None
+        };
 
         // Добавляем в сцену через SceneRoot (СНАЧАЛА добавляем в дерево!)
         // ВАЖНО: добавляем scene_node (может быть wrapper или actor напрямую)
@@ -121,6 +162,30 @@ pub fn spawn_actor_visuals_main_thread(
             char_body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ACTORS);
             char_body.set_collision_mask(crate::collision_layers::COLLISION_MASK_ACTORS);
             voidrun_simulation::log("  → Collision layers set: Actors (layer 2, mask 2|4)");
+        }
+
+        // Setup ShieldSphere initial state (collision + visibility)
+        if let Some(mut shield_sphere) = actor_node.try_get_node_as::<godot::classes::StaticBody3D>("ShieldSphere") {
+            if let Some(shield) = shield_opt {
+                // Есть EnergyShield компонент → устанавливаем collision state по is_active
+                let collision_layer = if shield.is_active() {
+                    crate::collision_layers::COLLISION_LAYER_SHIELDS // 16
+                } else {
+                    0 // No collision when depleted
+                };
+                shield_sphere.set_collision_layer(collision_layer);
+                shield_sphere.set_collision_mask(crate::collision_layers::COLLISION_MASK_SHIELDS); // 0 (passive)
+                shield_sphere.set_visible(true); // Визуал активен (shader контролирует transparency)
+                voidrun_simulation::log(&format!(
+                    "  → ShieldSphere initialized: is_active={}, collision_layer={}",
+                    shield.is_active(), collision_layer
+                ));
+            } else {
+                // Нет EnergyShield компонента → отключаем полностью
+                shield_sphere.set_visible(false); // Скрываем визуал
+                shield_sphere.set_collision_layer(0); // No collision
+                voidrun_simulation::log("  → ShieldSphere hidden (no EnergyShield component)");
+            }
         }
 
         // ПОСЛЕ добавления в SceneTree — добавляем NavigationAgent3D как прямой ребёнок actor_node
@@ -163,6 +228,9 @@ pub fn spawn_actor_visuals_main_thread(
         visuals.health_labels.insert(entity, health_label);
         visuals.stamina_labels.insert(entity, stamina_label);
         visuals.ai_state_labels.insert(entity, ai_label);
+        if let Some(shield_label) = shield_label_opt {
+            visuals.shield_labels.insert(entity, shield_label);
+        }
 
         // КРИТИЧНО: actor_node теперь САМ CharacterBody3D
         // Mapping InstanceId → Entity происходит через visuals.node_to_entity (выше)
@@ -209,6 +277,23 @@ pub fn sync_stamina_labels_main_thread(
         };
 
         let text = format!("Stamina: {:.0}/{:.0}", stamina.current, stamina.max);
+        label.set_text(text.as_str());
+    }
+}
+
+/// Sync shield energy changes → Godot Label3D
+///
+/// NAMING: `_main_thread` суффикс = Godot API calls (NonSend resources)
+pub fn sync_shield_labels_main_thread(
+    query: Query<(Entity, &voidrun_simulation::components::EnergyShield), Changed<voidrun_simulation::components::EnergyShield>>,
+    mut visuals: NonSendMut<VisualRegistry>,
+) {
+    for (entity, shield) in query.iter() {
+        let Some(label) = visuals.shield_labels.get_mut(&entity) else {
+            continue;
+        };
+
+        let text = format!("Shield: {:.0}/{:.0}", shield.current_energy, shield.max_energy);
         label.set_text(text.as_str());
     }
 }
