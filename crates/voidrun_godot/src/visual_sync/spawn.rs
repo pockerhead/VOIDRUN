@@ -153,8 +153,8 @@ pub fn spawn_actor_visuals_main_thread(
         // КРИТИЧНО: Устанавливаем collision layers явно (даже если есть в TSCN)
         // Actors (layer 2) коллидируют с Actors + Environment (layers 2,3)
         if let Ok(mut char_body) = actor_node.clone().try_cast::<godot::classes::CharacterBody3D>() {
-            char_body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ACTORS);
-            char_body.set_collision_mask(crate::collision_layers::COLLISION_MASK_ACTORS);
+            char_body.set_collision_layer(crate::shared::collision::COLLISION_LAYER_ACTORS);
+            char_body.set_collision_mask(crate::shared::collision::COLLISION_MASK_ACTORS);
             logger::log("  → Collision layers set: Actors (layer 2, mask 2|4)");
         }
 
@@ -163,12 +163,12 @@ pub fn spawn_actor_visuals_main_thread(
             if let Some(shield) = shield_opt {
                 // Есть EnergyShield компонент → устанавливаем collision state по is_active
                 let collision_layer = if shield.is_active() {
-                    crate::collision_layers::COLLISION_LAYER_SHIELDS // 16
+                    crate::shared::collision::COLLISION_LAYER_SHIELDS // 16
                 } else {
                     0 // No collision when depleted
                 };
                 shield_sphere.set_collision_layer(collision_layer);
-                shield_sphere.set_collision_mask(crate::collision_layers::COLLISION_MASK_SHIELDS); // 0 (passive)
+                shield_sphere.set_collision_mask(crate::shared::collision::COLLISION_MASK_SHIELDS); // 0 (passive)
                 shield_sphere.set_visible(true); // Визуал активен (shader контролирует transparency)
                 logger::log(&format!(
                     "  → ShieldSphere initialized: is_active={}, collision_layer={}",
@@ -199,8 +199,8 @@ pub fn spawn_actor_visuals_main_thread(
         logger::log("  → NavigationAgent3D added (avoidance enabled)");
 
         // Создаём AvoidanceReceiver для обработки velocity_computed signal
-        let mut avoidance_receiver = Gd::<crate::avoidance_receiver::AvoidanceReceiver>::from_init_fn(|base| {
-            crate::avoidance_receiver::AvoidanceReceiver::init(base)
+        let mut avoidance_receiver = Gd::<crate::navigation::AvoidanceReceiver>::from_init_fn(|base| {
+            crate::navigation::AvoidanceReceiver::init(base)
         });
         avoidance_receiver.set_name("AvoidanceReceiver");
 

@@ -216,10 +216,10 @@ pub fn create_test_navigation_region_with_obstacles(
 
     // Collision layers: Environment (layer 3)
     // Ground коллидирует с actors (layer 2) и projectiles (layer 4)
-    ground_body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ENVIRONMENT);
+    ground_body.set_collision_layer(crate::shared::collision::COLLISION_LAYER_ENVIRONMENT);
     ground_body.set_collision_mask(
-        crate::collision_layers::COLLISION_LAYER_ACTORS
-            | crate::collision_layers::COLLISION_LAYER_PROJECTILES,
+        crate::shared::collision::COLLISION_LAYER_ACTORS
+            | crate::shared::collision::COLLISION_LAYER_PROJECTILES,
     );
 
     // CollisionShape3D для земли (плоский box 400x1x400м)
@@ -261,10 +261,10 @@ pub fn create_test_navigation_region_with_obstacles(
 
         // Collision layers: Environment (layer 3)
         // Obstacles коллидируют с actors (layer 2) и projectiles (layer 4)
-        obstacle.set_collision_layer(crate::collision_layers::COLLISION_LAYER_ENVIRONMENT);
+        obstacle.set_collision_layer(crate::shared::collision::COLLISION_LAYER_ENVIRONMENT);
         obstacle.set_collision_mask(
-            crate::collision_layers::COLLISION_LAYER_ACTORS
-                | crate::collision_layers::COLLISION_LAYER_PROJECTILES,
+            crate::shared::collision::COLLISION_LAYER_ACTORS
+                | crate::shared::collision::COLLISION_LAYER_PROJECTILES,
         );
 
         // CollisionShape3D

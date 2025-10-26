@@ -344,7 +344,7 @@ fn find_closest_attacker_in_vision(
         };
 
         // Mutual facing check (both actors looking at each other)
-        use crate::actor_utils::{actors_facing_each_other, angles};
+        use crate::shared::actor_utils::{actors_facing_each_other, angles};
         if actors_facing_each_other(player_node, enemy_node, angles::MODERATE_45_DEG).is_none() {
             continue; // Not mutually facing
         }

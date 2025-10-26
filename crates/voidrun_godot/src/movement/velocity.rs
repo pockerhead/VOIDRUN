@@ -13,63 +13,47 @@ use voidrun_simulation::MovementCommand;
 
 /// Применение retreat velocity (движение назад от target)
 ///
-/// ВАЖНО: Сейчас система отключена (return в начале) — не используется в AI FSM.
-/// Оставлена для будущего использования (ranged combat retreat).
+/// ⚠️ TODO (Phase 3 - Procgen): ЗАМЕНИТЬ НА NavigationAgent3D!
+///
+/// **Проблема:** Текущая реализация использует прямолинейное движение назад.
+/// NPCs падают с уровней в пропасть при retreat (нет obstacle avoidance).
+///
+/// **Решение:** Использовать NavigationAgent3D.set_target_position() для retreat:
+/// - Рассчитать безопасную точку ПОЗАДИ NPC (raycast/navmesh query)
+/// - NavigationAgent3D найдёт путь с учётом препятствий
+/// - Работает так же как FollowEntity, но target = safe retreat point
+///
+/// **Status:** Временно отключено (return). Включить после procgen когда будут уровни с обрывами.
 pub fn apply_retreat_velocity_main_thread(
-    query: Query<(Entity, &MovementCommand)>,
-    visuals: NonSend<VisualRegistry>,
-    mut transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
+    _query: Query<(Entity, &MovementCommand)>,
+    _visuals: NonSend<VisualRegistry>,
+    _transform_events: EventWriter<voidrun_simulation::ai::GodotTransformEvent>,
 ) {
-    return;
-    const RETREAT_SPEED: f32 = 3.0; // Отступаем медленнее чем движемся вперёд
+    return; // TODO: Implement via NavigationAgent3D (Phase 3)
 
-    for (entity, command) in query.iter() {
-        let MovementCommand::RetreatFrom { target } = command else {
-            continue;
-        };
-
-        // Get actor node
-        let Some(actor_node) = visuals.visuals.get(&entity).cloned() else {
-            continue;
-        };
-        let mut body = actor_node.cast::<CharacterBody3D>();
-
-        // Get target node
-        let Some(target_node) = visuals.visuals.get(target) else {
-            continue;
-        };
-
-        let current_pos = body.get_global_position();
-        let target_pos = target_node.get_global_position();
-
-        // Вектор ОТ target (direction to retreat)
-        let to_target = target_pos - current_pos;
-        let retreat_direction = -to_target.normalized();
-
-        // Velocity: двигаемся НАЗАД
-        let velocity = Vector3::new(
-            retreat_direction.x * RETREAT_SPEED,
-            body.get_velocity().y, // Сохраняем Y (гравитация)
-            retreat_direction.z * RETREAT_SPEED,
-        );
-
-        // Rotation: смотрим НА target (не в направлении движения!)
-        let look_at_pos = Vector3::new(target_pos.x, body.get_position().y, target_pos.z);
-        body.look_at(look_at_pos);
-
-        // Применяем velocity
-        body.set_velocity(velocity);
-        body.move_and_slide();
-
-        // ✅ Send PositionChanged event EVERY FRAME during retreat
-        let new_pos = body.get_position();
-        transform_events.write(
-            voidrun_simulation::ai::GodotTransformEvent::PositionChanged {
-                entity,
-                position: Vec3::new(new_pos.x, new_pos.y, new_pos.z),
-            },
-        );
-    }
+    // OLD IMPLEMENTATION (прямолинейное движение - NPCs падают в пропасть):
+    // const RETREAT_SPEED: f32 = 3.0;
+    // for (entity, command) in _query.iter() {
+    //     let MovementCommand::RetreatFrom { target } = command else { continue; };
+    //     let Some(actor_node) = _visuals.visuals.get(&entity).cloned() else { continue; };
+    //     let mut body = actor_node.cast::<CharacterBody3D>();
+    //     let Some(target_node) = _visuals.visuals.get(target) else { continue; };
+    //     let current_pos = body.get_global_position();
+    //     let target_pos = target_node.get_global_position();
+    //     let retreat_direction = -(target_pos - current_pos).normalized();
+    //     let velocity = Vector3::new(
+    //         retreat_direction.x * RETREAT_SPEED,
+    //         body.get_velocity().y,
+    //         retreat_direction.z * RETREAT_SPEED,
+    //     );
+    //     body.look_at(Vector3::new(target_pos.x, body.get_position().y, target_pos.z));
+    //     body.set_velocity(velocity);
+    //     body.move_and_slide();
+    //     _transform_events.write(voidrun_simulation::ai::GodotTransformEvent::PositionChanged {
+    //         entity,
+    //         position: Vec3::new(body.get_position().x, body.get_position().y, body.get_position().z),
+    //     });
+    // }
 }
 
 /// Применение safe_velocity от NavigationAgent3D avoidance
@@ -85,7 +69,7 @@ pub fn apply_retreat_velocity_main_thread(
 /// - Velocity масштабируется косинусом угла (замедление при повороте)
 /// - В бою НЕ поворачиваемся (weapon aim system уже управляет rotation)
 pub fn apply_safe_velocity_system(
-    mut events: EventReader<crate::events::SafeVelocityComputed>,
+    mut events: EventReader<crate::navigation::SafeVelocityComputed>,
     ai_query: Query<&voidrun_simulation::ai::AIState>,
     visuals: NonSend<VisualRegistry>,
     time: Res<Time>,

@@ -86,7 +86,7 @@ pub fn update_combat_targets_main_thread(
                 continue;
             };
 
-            query.set_collision_mask(crate::collision_layers::COLLISION_MASK_RAYCAST_LOS);
+            query.set_collision_mask(crate::shared::collision::COLLISION_MASK_RAYCAST_LOS);
             let empty_array = godot::prelude::Array::new();
             query.set_exclude(&empty_array);
 

@@ -127,7 +127,7 @@ pub fn camera_raycast_hit_point(
     let query_params = godot::classes::PhysicsRayQueryParameters3D::create(camera_pos, target_pos)?;
     let mut query = query_params;
 
-    query.set_collision_mask(crate::collision_layers::COLLISION_MASK_RAYCAST_LOS);
+    query.set_collision_mask(crate::shared::collision::COLLISION_MASK_RAYCAST_LOS);
 
     let result = space.intersect_ray(&query);
 

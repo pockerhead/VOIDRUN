@@ -45,7 +45,7 @@ pub fn process_player_weapon_switch(
         }
 
         // Generate SwapActiveWeaponIntent для player
-        intent_events.send(SwapActiveWeaponIntent {
+        intent_events.write(SwapActiveWeaponIntent {
             entity: player_entity,
             target_slot: event.slot_index,
         });

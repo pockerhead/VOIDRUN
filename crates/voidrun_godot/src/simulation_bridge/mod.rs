@@ -15,7 +15,7 @@ use crate::vision::VisionTracking;
 use godot::classes::{INode3D, Node};
 use godot::prelude::*;
 use godot_logger::GodotLogger;
-use spawn::{spawn_melee_npc, spawn_test_npc};
+use spawn::spawn_test_npc;
 use voidrun_simulation::{create_headless_app, SimulationPlugin};
 use voidrun_simulation::logger;
 /// SimulationBridge: главный node для Godot ↔ ECS интеграции
@@ -63,7 +63,7 @@ impl INode3D for SimulationBridge {
         app.insert_non_send_resource(VisualRegistry::default());
         app.insert_non_send_resource(AttachmentRegistry::default());
         app.insert_non_send_resource(VisionTracking::default());
-        app.insert_non_send_resource(crate::projectile_registry::GodotProjectileRegistry::default());
+        app.insert_non_send_resource(crate::projectiles::GodotProjectileRegistry::default());
         app.insert_non_send_resource(SceneRoot {
             node: self.base().clone().upcast::<Node3D>(),
         });
@@ -226,7 +226,7 @@ impl SimulationBridge {
         };
 
         app.world_mut()
-            .send_event(crate::events::SafeVelocityComputed {
+            .send_event(crate::navigation::SafeVelocityComputed {
                 entity,
                 safe_velocity,
                 desired_velocity,

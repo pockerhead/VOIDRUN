@@ -14,7 +14,7 @@
 //!
 //! ## Использование:
 //! ```rust
-//! use crate::collision_layers::*;
+//! use crate::shared::collision::*;
 //!
 //! // Actor setup
 //! actor_node.set_collision_layer(COLLISION_LAYER_ACTORS);

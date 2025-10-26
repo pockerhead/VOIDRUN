@@ -151,10 +151,11 @@ mod tests {
         stamina.consume(50.0);
         assert_eq!(stamina.current, 50.0);
 
-        stamina.regenerate(2.0); // 2 sec × 10 units/sec = +20
-        assert_eq!(stamina.current, 70.0);
+        stamina.regenerate(1.0); // 1 sec × 50 units/sec = +50
+        assert_eq!(stamina.current, 100.0); // Clamp to max
 
-        stamina.regenerate(10.0); // Clamp to max
-        assert_eq!(stamina.current, 100.0);
+        stamina.consume(30.0);
+        stamina.regenerate(0.4); // 0.4 sec × 50 units/sec = +20
+        assert_eq!(stamina.current, 90.0);
     }
 }

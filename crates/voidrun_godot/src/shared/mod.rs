@@ -1,10 +1,33 @@
-//! Shared domain — common resources and utilities
+//! Shared domain — common resources and utilities used across multiple domains.
 //!
-//! Contains NonSend resources, registries, and shared types used across multiple systems.
+//! # Architecture
+//!
+//! This domain contains:
+//! - **Resources**: NonSend resources (VisualRegistry, AttachmentRegistry, SceneRoot, GodotDeltaTime)
+//! - **Utilities**: Actor spatial helpers (mutual facing, LOS, distance)
+//! - **Constants**: Collision layers/masks configuration
+//!
+//! # Design Rationale
+//!
+//! Shared utilities are used by multiple domains:
+//! - `actor_utils`: Used by combat (melee windup detection), AI (facing checks)
+//! - `los_helpers`: Used by vision, combat (line-of-sight validation)
+//! - `collision`: Used by projectiles, actors, shields (Godot physics layers)
+//!
+//! # Submodules
+//!
+//! - Core resources (VisualRegistry, AttachmentRegistry, SceneRoot, GodotDeltaTime) - defined in mod.rs
+//! - `actor_utils`: Actor spatial utilities (mutual facing, angles, distance)
+//! - `los_helpers`: Line-of-sight raycast helpers
+//! - `collision`: Collision layer/mask constants
 
 use bevy::prelude::*;
 use godot::prelude::*;
 use std::collections::HashMap;
+
+pub mod actor_utils;
+pub mod los_helpers;
+pub mod collision;
 
 /// Registry: маппинг Entity ↔ Godot visual components
 ///

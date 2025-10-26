@@ -19,7 +19,7 @@ pub fn register_systems(app: &mut App) {
     };
 
     // Movement domain
-    use crate::movement_system::{
+    use crate::movement::{
         apply_gravity_to_all_actors, // Gravity + jump для ВСЕХ акторов (ПЕРВАЯ система!)
         process_movement_commands_main_thread,
         update_follow_entity_targets_main_thread,
@@ -28,27 +28,25 @@ pub fn register_systems(app: &mut App) {
         apply_safe_velocity_system, // NavigationAgent3D avoidance
     };
 
-    // Weapon domain
-    use crate::weapon_system::{
+    // Combat domain (UNIFIED: melee + ai_melee + ranged)
+    use crate::combat::{
+        // Ranged combat (targeting + firing + projectiles)
         update_combat_targets_main_thread, // Dynamic target switching
         weapon_aim_main_thread,
         process_ranged_attack_intents_main_thread,
         weapon_fire_main_thread,
         projectile_collision_system_main_thread, // Event-driven projectile → body collision
         projectile_shield_collision_main_thread, // Shield collision detection (Area3D)
-    };
-
-    // Melee domain
-    use crate::melee::{
+        detect_melee_windups_main_thread, // Visual windup detection
+        // Melee execution
         process_melee_attack_intents_main_thread,
         execute_melee_attacks_main_thread,
         poll_melee_hitboxes_main_thread,
         execute_parry_animations_main_thread,
         execute_stagger_animations_main_thread,
+        // AI combat decision-making
+        ai_melee_combat_decision_main_thread,
     };
-
-    // AI combat domain
-    use crate::ai_melee_combat_decision::ai_melee_combat_decision_main_thread;
 
     // Vision domain
     use crate::vision::poll_vision_cones_main_thread;
@@ -70,7 +68,7 @@ pub fn register_systems(app: &mut App) {
     use crate::weapon_switch::process_player_weapon_switch;
 
     // Shooting domain (ADS + Hip Fire)
-    use crate::shooting::{
+    use crate::player_shooting::{
         process_ads_toggle,
         update_ads_position_transition,
         player_hip_fire_aim,
@@ -83,11 +81,8 @@ pub fn register_systems(app: &mut App) {
         update_shield_collision_state_main_thread, // Shield collision enable/disable based on is_active
     };
 
-    // Дополнительно из weapon_system
-    use crate::weapon_system::detect_melee_windups_main_thread;
-
     // 1. Регистрируем Godot tactical layer events
-    app.add_event::<crate::events::SafeVelocityComputed>();
+    app.add_event::<crate::navigation::SafeVelocityComputed>();
     app.add_event::<voidrun_simulation::JumpIntent>();
     app.add_event::<crate::input::PlayerInputEvent>(); // Player input events
     app.add_event::<crate::input::CameraToggleEvent>(); // Camera toggle [V]

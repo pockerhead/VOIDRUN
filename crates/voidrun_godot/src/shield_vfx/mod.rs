@@ -19,7 +19,7 @@ use voidrun_simulation::logger;
 
 use voidrun_simulation::shared::equipment::EnergyShield;
 use crate::shared::VisualRegistry;
-use crate::collision_layers::COLLISION_LAYER_SHIELDS;
+use crate::shared::collision::COLLISION_LAYER_SHIELDS;
 
 /// System: Update shield shader uniforms on SIGNIFICANT energy change
 ///

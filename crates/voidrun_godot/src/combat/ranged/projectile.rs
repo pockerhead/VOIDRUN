@@ -1,12 +1,11 @@
 //! Projectile collision detection and melee telegraph systems.
 
 use bevy::prelude::*;
-use godot::prelude::*;
 use voidrun_simulation::*;
 use voidrun_simulation::combat::{AttackType, MeleeAttackState, WeaponStats};
 use voidrun_simulation::ai::{GodotAIEvent, SpottedEnemies};
 use crate::shared::VisualRegistry;
-use crate::actor_utils::{actors_facing_each_other, angles};
+use crate::shared::actor_utils::{actors_facing_each_other, angles};
 use voidrun_simulation::logger;
 
 // ============================================================================
@@ -21,7 +20,7 @@ use voidrun_simulation::logger;
 ///
 /// **Frequency:** Every frame (60 Hz)
 pub fn projectile_collision_system_main_thread(
-    mut registry: NonSendMut<crate::projectile_registry::GodotProjectileRegistry>,
+    mut registry: NonSendMut<crate::projectiles::GodotProjectileRegistry>,
     visuals: NonSend<VisualRegistry>,
     mut projectile_hit_events: EventWriter<voidrun_simulation::combat::ProjectileHit>,
 ) {
@@ -108,7 +107,7 @@ pub fn projectile_collision_system_main_thread(
 /// **Depleted shield bypass:** energy <= 0 → projectile passes through (checked in ECS)
 /// **VFX feedback:** Ripple effect on shield mesh (shader uniforms updated in shield_vfx_system.rs)
 pub fn projectile_shield_collision_main_thread(
-    mut registry: NonSendMut<crate::projectile_registry::GodotProjectileRegistry>,
+    mut registry: NonSendMut<crate::projectiles::GodotProjectileRegistry>,
     visuals: NonSend<VisualRegistry>,
     shields: Query<(Entity, &Actor, &components::EnergyShield)>,
     mut projectile_shield_hit_events: EventWriter<voidrun_simulation::combat::ProjectileShieldHit>,

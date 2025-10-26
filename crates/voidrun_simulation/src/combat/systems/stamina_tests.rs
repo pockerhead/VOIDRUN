@@ -10,10 +10,10 @@ mod tests {
         let mut stamina = Stamina::new(100.0);
         stamina.consume(50.0); // 50% stamina
 
-        let delta = 1.0; // 1 second
+        let delta = 0.2; // 0.2 seconds
         stamina.regenerate(delta);
 
-        // После 1 sec: 50 + (10 * 1) = 60
+        // После 0.2 sec: 50 + (50 * 0.2) = 60
         assert_eq!(stamina.current, 60.0);
     }
 

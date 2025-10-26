@@ -21,8 +21,11 @@
 //! # Пример использования
 //!
 //! ```rust
+//! use voidrun_simulation::{ItemDefinitions, ItemInstance, ItemId};
+//!
 //! // Lookup definition
-//! let def = definitions.get(&ItemId("melee_sword".into()))?;
+//! let definitions = ItemDefinitions::default();
+//! let def = definitions.get(&ItemId("melee_sword".into())).unwrap();
 //!
 //! // Create instance
 //! let sword = ItemInstance {

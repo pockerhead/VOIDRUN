@@ -7,7 +7,7 @@
 
 use godot::prelude::*;
 use std::collections::HashMap;
-use crate::projectile::GodotProjectile;
+use super::projectile::GodotProjectile;
 use voidrun_simulation::logger;
 
 /// Registry для Godot projectiles

@@ -108,7 +108,7 @@ pub fn process_ranged_attack_intents_main_thread(
         };
 
         // Collision mask: Actors + Environment (LOS check)
-        query.set_collision_mask(crate::collision_layers::COLLISION_MASK_RAYCAST_LOS);
+        query.set_collision_mask(crate::shared::collision::COLLISION_MASK_RAYCAST_LOS);
 
         let empty_array = godot::prelude::Array::new();
         query.set_exclude(&empty_array); // Проверяем все коллизии
@@ -214,7 +214,7 @@ pub fn weapon_fire_main_thread(
     mut fire_events: EventReader<WeaponFired>,
     visuals: NonSend<VisualRegistry>,
     scene_root: NonSend<crate::shared::SceneRoot>,
-    mut registry: NonSendMut<crate::projectile_registry::GodotProjectileRegistry>,
+    mut registry: NonSendMut<crate::projectiles::GodotProjectileRegistry>,
 ) {
     for event in fire_events.read() {
         // Находим actor node
@@ -344,9 +344,9 @@ fn spawn_godot_projectile(
     speed: f32,
     damage: u32,
     scene_root: &Gd<Node3D>,
-    registry: &mut crate::projectile_registry::GodotProjectileRegistry,
+    registry: &mut crate::projectiles::GodotProjectileRegistry,
 ) {
-    use crate::projectile::GodotProjectile;
+    use crate::projectiles::GodotProjectile;
 
     // 1. Создаём GodotProjectile node (using IArea3D trait init)
     use godot::classes::IArea3D;
@@ -358,8 +358,8 @@ fn spawn_godot_projectile(
 
     // Collision layers: Projectiles (layer 4)
     // Collision mask: Actors + Environment (projectiles hit actors and walls)
-    projectile.set_collision_layer(crate::collision_layers::COLLISION_LAYER_PROJECTILES);
-    projectile.set_collision_mask(crate::collision_layers::COLLISION_MASK_PROJECTILES);
+    projectile.set_collision_layer(crate::shared::collision::COLLISION_LAYER_PROJECTILES);
+    projectile.set_collision_mask(crate::shared::collision::COLLISION_MASK_PROJECTILES);
 
     // Debug: проверяем что layers установлены
     logger::log(&format!(

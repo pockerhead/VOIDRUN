@@ -8,7 +8,6 @@ use godot::classes::{
     light_3d::Param as LightParam, CanvasLayer, DirectionalLight3D, Node, Timer,
 };
 use godot::prelude::*;
-use godot::builtin::GString;
 use voidrun_simulation::logger;
 
 impl SimulationBridge {
@@ -17,7 +16,7 @@ impl SimulationBridge {
     /// TEST: Проверяем что NavMesh запекается из StaticBody3D/CSGBox3D children,
     /// а не из процедурной геометрии (для будущего chunk building).
     pub(super) fn create_navigation_region(&mut self) {
-        use crate::chunk_navmesh::{
+        use crate::navigation::{
             create_test_navigation_region_with_obstacles, NavMeshBakingParams,
         };
 
@@ -126,8 +125,8 @@ impl SimulationBridge {
         // Создаём DebugOverlay node с передачей пути через bind_mut
         use godot::classes::IControl;
         let mut debug_overlay =
-            Gd::<crate::debug_overlay::DebugOverlay>::from_init_fn(|base| {
-                <crate::debug_overlay::DebugOverlay as IControl>::init(base)
+            Gd::<crate::ui::DebugOverlay>::from_init_fn(|base| {
+                <crate::ui::DebugOverlay as IControl>::init(base)
             });
 
         // Устанавливаем путь к SimulationBridge ПЕРЕД добавлением в дерево

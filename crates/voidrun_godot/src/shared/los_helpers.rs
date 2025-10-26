@@ -80,7 +80,7 @@ pub fn check_line_of_sight(
     };
 
     // Collision mask: Actors + Environment (LOS check)
-    query.set_collision_mask(crate::collision_layers::COLLISION_MASK_RAYCAST_LOS);
+    query.set_collision_mask(crate::shared::collision::COLLISION_MASK_RAYCAST_LOS);
 
     let empty_array = godot::prelude::Array::new();
     query.set_exclude(&empty_array); // Не исключаем ничего (проверяем все коллизии)

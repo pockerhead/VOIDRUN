@@ -145,38 +145,49 @@ godot_error!("error message")
 - Решения обоснованы
 - Performance с умом (измеряй, не гадай)
 
-**7. ЖЁСТКИЙ ЛИМИТ: Файлы ≤ 950 строк:**
-- **ПРАВИЛО:** Файл >750 строк → СТОП, архитектурное обсуждение
-- **МАКСИМУМ:** 950 строк — абсолютная граница (НЕПРИЕМЛЕМО больше)
-- **Действия при >750 строк:**
-  1. Остановить разработку
-  2. Обсудить с user архитектуру
-  3. Выделить логические блоки в отдельные модули (папка + файлы)
-  4. **ВАЖНО:** Использовать multiple `impl` blocks (как Swift extensions), НЕ standalone функции
-  5. Пример: `simulation_bridge.rs` (833 строки) → разделить на:
-     - `mod.rs` (core struct + INode3D impl + Godot API)
-     - `scene.rs` (`impl SimulationBridge` для scene creation)
-     - `effects.rs` (`impl SimulationBridge` для visual effects)
-     - `spawn.rs`, `systems_setup.rs` (standalone функции где нужно)
-- **Почему:** ECS/event-driven код не должен иметь монстр-файлы. Если файл растёт — значит нарушена модульность.
-- **Паттерн разделения:**
-  ```rust
-  // ✅ ХОРОШО: Extension methods через impl
-  // scene.rs
-  impl SimulationBridge {
-      pub(super) fn create_camera(&mut self) { ... }
-  }
+**7. Domain-Driven Architecture (КРИТИЧНО!):**
+- **ЗОЛОТОЕ ПРАВИЛО:** Код организуется по **business domains**, НЕ по техническим слоям
+- **Детали:** [docs/DOMAIN_ARCHITECTURE_PRINCIPLES.md](docs/DOMAIN_ARCHITECTURE_PRINCIPLES.md)
 
-  // mod.rs
-  self.create_camera();  // Вызываем как метод
+**Domain Organization:**
+```
+src/
+├── combat/         # Business domain (melee + ranged + AI)
+├── navigation/     # Business domain (pathfinding + avoidance)
+├── player_shooting/# Business domain (ADS + hip fire)
+└── shared/         # Cross-cutting concerns (utilities)
+```
 
-  // ❌ ПЛОХО: Standalone функции с параметром parent
-  // scene.rs
-  pub fn create_camera(parent: &mut Gd<Node3D>) { ... }
+**НЕ ИСПОЛЬЗОВАТЬ:**
+```
+src/
+├── systems/        # ❌ Technical layer
+├── components/     # ❌ Technical layer
+└── events/         # ❌ Technical layer
+```
 
-  // mod.rs
-  create_camera(self.base_mut());  // Громоздко
-  ```
+**File Size Limits:**
+- **Warning:** >750 строк — СТОП, архитектурное обсуждение
+- **Hard limit:** >950 строк — НЕПРИЕМЛЕМО
+- **Split pattern:** Multiple `impl` blocks (как Swift extensions)
+
+**Domain Decision Checklist:**
+- [ ] Conceptually related? (business concept)
+- [ ] Change together? (same причина)
+- [ ] Domain size <1500 строк?
+- [ ] Infrastructure vs domain logic разделены?
+
+**Паттерн разделения:**
+```rust
+// ✅ ХОРОШО: Extension methods через impl
+// scene.rs
+impl SimulationBridge {
+    pub(super) fn create_camera(&mut self) { ... }
+}
+
+// mod.rs
+self.create_camera();  // Вызываем как метод
+```
 
 ---
 

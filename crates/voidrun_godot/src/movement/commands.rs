@@ -1,94 +1,13 @@
 //! Movement command processing (MovementCommand → NavigationAgent3D).
 
 use crate::shared::VisualRegistry;
-use crate::los_helpers::check_line_of_sight;
+use crate::shared::los_helpers::check_line_of_sight;
 use bevy::prelude::*;
-use godot::classes::{BoxMesh, CharacterBody3D, Material, MeshInstance3D, NavigationAgent3D, StandardMaterial3D};
+use godot::classes::{BoxMesh, Material, MeshInstance3D, NavigationAgent3D, StandardMaterial3D};
 use godot::prelude::*;
 use voidrun_simulation::{MovementCommand, NavigationState};
 use voidrun_simulation::logger;
 
-/// Adjust desired distance based on LOS check (stateful iteration).
-///
-/// Algorithm:
-/// 1. If current_distance is None → initialize from max_distance
-/// 2. Check LOS at current actor position to target
-/// 3. If LOS clear → keep current_distance (не увеличиваем обратно)
-/// 4. If LOS blocked → decrease current_distance by 2m
-/// 5. If distance < 2m → clamp to 2m (minimum, wait state)
-///
-/// NavigationAgent will pathfind to closer position, which may clear LOS.
-/// Distance iteratively decreases each frame until LOS clears.
-///
-/// # Parameters
-/// - `from_entity`: Shooter/follower entity
-/// - `to_entity`: Target entity
-/// - `current_distance`: Current adjusted distance (from NavigationState)
-/// - `max_distance`: Maximum distance (from weapon range, for initialization)
-/// - `visuals`: VisualRegistry for Godot nodes
-/// - `scene_root`: SceneRoot for raycast
-///
-/// # Returns
-/// - Adjusted desired_distance for NavigationAgent
-pub(super) fn adjust_distance_for_los(
-    from_entity: Entity,
-    to_entity: Entity,
-    current_distance: Option<f32>,
-    max_distance: f32,
-    visuals: &NonSend<VisualRegistry>,
-    scene_root: &NonSend<crate::shared::SceneRoot>,
-) -> f32 {
-    const MIN_DISTANCE: f32 = 2.0; // Минимальная дистанция (метры)
-    const DISTANCE_STEP: f32 = 2.0; // Шаг уменьшения дистанции (метры)
-
-    // Инициализируем current_distance если None
-    let current = current_distance.unwrap_or(max_distance);
-
-    // Проверяем LOS
-    match check_line_of_sight(from_entity, to_entity, visuals, scene_root) {
-        Some(true) => {
-            // LOS clear → используем текущую distance (не увеличиваем)
-            current
-        }
-        Some(false) => {
-            // LOS blocked → подходим ближе (уменьшаем distance)
-            let new_distance = (current - DISTANCE_STEP).max(MIN_DISTANCE);
-
-            // Логируем только если distance изменилась
-            if (new_distance - current).abs() > 0.1 {
-                logger::log(&format!(
-                    "🔄 LOS blocked: {:?} → {:?}, reducing distance {:.1}m → {:.1}m",
-                    from_entity, to_entity, current, new_distance
-                ));
-            }
-
-            new_distance
-        }
-        None => {
-            // Raycast failed → используем current distance (fallback)
-            current
-        }
-    }
-}
-
-/// Debug: создаёт красный box marker в указанной позиции
-#[allow(dead_code)]
-pub(super) fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
-    let mut marker = MeshInstance3D::new_alloc();
-
-    // Красный box mesh
-    let mut box_mesh = BoxMesh::new_gd();
-    box_mesh.set_size(Vector3::new(0.5, 0.5, 0.5));
-    marker.set_mesh(&box_mesh.upcast::<BoxMesh>());
-
-    // Красный материал
-    let mut material = StandardMaterial3D::new_gd();
-    material.set_albedo(Color::from_rgb(1.0, 0.0, 0.0)); // Ярко-красный
-    marker.set_surface_override_material(0, &material.upcast::<Material>());
-
-    marker.set_position(position);
-    scene_root.add_child(&marker.upcast::<Node>());
-}
 
 /// Обработка MovementCommand → NavigationAgent3D target
 ///
@@ -200,4 +119,86 @@ pub fn process_movement_commands_main_thread(
             }
         }
     }
+}
+
+/// Adjust desired distance based on LOS check (stateful iteration).
+///
+/// Algorithm:
+/// 1. If current_distance is None → initialize from max_distance
+/// 2. Check LOS at current actor position to target
+/// 3. If LOS clear → keep current_distance (не увеличиваем обратно)
+/// 4. If LOS blocked → decrease current_distance by 2m
+/// 5. If distance < 2m → clamp to 2m (minimum, wait state)
+///
+/// NavigationAgent will pathfind to closer position, which may clear LOS.
+/// Distance iteratively decreases each frame until LOS clears.
+///
+/// # Parameters
+/// - `from_entity`: Shooter/follower entity
+/// - `to_entity`: Target entity
+/// - `current_distance`: Current adjusted distance (from NavigationState)
+/// - `max_distance`: Maximum distance (from weapon range, for initialization)
+/// - `visuals`: VisualRegistry for Godot nodes
+/// - `scene_root`: SceneRoot for raycast
+///
+/// # Returns
+/// - Adjusted desired_distance for NavigationAgent
+pub(super) fn adjust_distance_for_los(
+    from_entity: Entity,
+    to_entity: Entity,
+    current_distance: Option<f32>,
+    max_distance: f32,
+    visuals: &NonSend<VisualRegistry>,
+    scene_root: &NonSend<crate::shared::SceneRoot>,
+) -> f32 {
+    const MIN_DISTANCE: f32 = 2.0; // Минимальная дистанция (метры)
+    const DISTANCE_STEP: f32 = 2.0; // Шаг уменьшения дистанции (метры)
+
+    // Инициализируем current_distance если None
+    let current = current_distance.unwrap_or(max_distance);
+
+    // Проверяем LOS
+    match check_line_of_sight(from_entity, to_entity, visuals, scene_root) {
+        Some(true) => {
+            // LOS clear → используем текущую distance (не увеличиваем)
+            current
+        }
+        Some(false) => {
+            // LOS blocked → подходим ближе (уменьшаем distance)
+            let new_distance = (current - DISTANCE_STEP).max(MIN_DISTANCE);
+
+            // Логируем только если distance изменилась
+            if (new_distance - current).abs() > 0.1 {
+                logger::log(&format!(
+                    "🔄 LOS blocked: {:?} → {:?}, reducing distance {:.1}m → {:.1}m",
+                    from_entity, to_entity, current, new_distance
+                ));
+            }
+
+            new_distance
+        }
+        None => {
+            // Raycast failed → используем current distance (fallback)
+            current
+        }
+    }
+}
+
+/// Debug: создаёт красный box marker в указанной позиции
+#[allow(dead_code)]
+pub(super) fn spawn_debug_marker(position: Vector3, scene_root: &mut Gd<Node>) {
+    let mut marker = MeshInstance3D::new_alloc();
+
+    // Красный box mesh
+    let mut box_mesh = BoxMesh::new_gd();
+    box_mesh.set_size(Vector3::new(0.5, 0.5, 0.5));
+    marker.set_mesh(&box_mesh.upcast::<BoxMesh>());
+
+    // Красный материал
+    let mut material = StandardMaterial3D::new_gd();
+    material.set_albedo(Color::from_rgb(1.0, 0.0, 0.0)); // Ярко-красный
+    marker.set_surface_override_material(0, &material.upcast::<Material>());
+
+    marker.set_position(position);
+    scene_root.add_child(&marker.upcast::<Node>());
 }

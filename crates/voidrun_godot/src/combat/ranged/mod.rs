@@ -17,6 +17,3 @@ pub use projectile::{
     projectile_collision_system_main_thread,
     projectile_shield_collision_main_thread,
 };
-
-// Melee windup detection (technically part of melee combat, but uses weapon range)
-pub use projectile::detect_melee_windups_main_thread;

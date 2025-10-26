@@ -28,11 +28,10 @@
 //! - **Defensive**: Attack 0.3, Parry 0.95 (almost always parries)
 
 use bevy::prelude::*;
-use godot::prelude::*;
 use rand::Rng;
 use voidrun_simulation::ai::{AIState, GodotAIEvent};
 use voidrun_simulation::combat::{
-    AttackPhase, AttackType, MeleeAttackIntent, MeleeAttackState, MeleeAttackType, ParryDelayTimer,
+    AttackType, MeleeAttackIntent, MeleeAttackState, MeleeAttackType, ParryDelayTimer,
     ParryState, StaggerState, WeaponStats,
 };
 use voidrun_simulation::{Stamina, Actor};
@@ -40,7 +39,7 @@ use voidrun_simulation::player::Player;
 use voidrun_simulation::logger;
 
 use crate::shared::VisualRegistry;
-use crate::los_helpers::check_line_of_sight;
+use crate::shared::los_helpers::check_line_of_sight;
 
 // Submodules
 mod evaluation;
@@ -50,7 +49,6 @@ mod validation;
 // Re-export key functions
 use evaluation::{evaluate_available_actions, get_current_action};
 use decision::{choose_best_action, execute_decision};
-use validation::{is_facing_attacker};
 
 // ============================================================================
 // Components

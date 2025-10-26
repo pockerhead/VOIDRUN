@@ -42,8 +42,8 @@ pub fn disable_collision_on_death_main_thread(
             // 1. CORPSE COLLISION (только с Environment, не с Actors/Projectiles)
             // ========================================
             // Труп лежит на земле (не проваливается), но не блокирует живых
-            body.set_collision_layer(crate::collision_layers::COLLISION_LAYER_CORPSES);
-            body.set_collision_mask(crate::collision_layers::COLLISION_MASK_CORPSES);
+            body.set_collision_layer(crate::shared::collision::COLLISION_LAYER_CORPSES);
+            body.set_collision_mask(crate::shared::collision::COLLISION_MASK_CORPSES);
 
             // ========================================
             // 2. ОТКЛЮЧАЕМ NAVIGATIONAGENT3D

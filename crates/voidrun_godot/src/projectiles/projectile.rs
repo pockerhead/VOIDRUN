@@ -121,7 +121,7 @@ impl GodotProjectile {
     #[func]
     fn on_area_entered(&mut self, area: Gd<Area3D>) {
         // Проверяем это shield (Layer 16)
-        if area.get_collision_layer() & crate::collision_layers::COLLISION_LAYER_SHIELDS == 0 {
+        if area.get_collision_layer() & crate::shared::collision::COLLISION_LAYER_SHIELDS == 0 {
             return; // Не shield
         }
 
