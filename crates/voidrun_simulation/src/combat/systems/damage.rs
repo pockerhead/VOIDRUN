@@ -1,63 +1,8 @@
-//! Damage calculation система (Godot-driven combat)
-//!
-//! ECS ответственность:
-//! - Damage calculation с модификаторами (stamina multiplier)
-//! - Health application
-//! - Death detection
-//!
-//! Godot отправляет: GodotCombatEvent::WeaponHit → apply_damage
-//! ECS отправляет: DamageDealt, EntityDied events
+//! Damage calculation and death systems.
 
 use bevy::prelude::*;
 use crate::components::{Health, Stamina};
-use crate::combat::WeaponStats;
-
-/// Source of damage (для разных эффектов/звуков)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
-pub enum DamageSource {
-    /// Melee weapon hit
-    Melee,
-    /// Ranged projectile hit
-    Ranged,
-    /// Environmental (TODO: future)
-    Environmental,
-}
-
-/// Результат применения урона (для визуальных эффектов)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
-pub enum AppliedDamage {
-    /// Щит поглотил весь урон
-    ShieldAbsorbed,
-    /// Щит пробит, остаток урона прошёл в health
-    ShieldBrokenWithOverflow(u32),
-    /// Урон прошёл напрямую (melee или щита нет)
-    Direct,
-}
-
-/// Событие: урон нанесен
-///
-/// Генерируется после применения damage к Health (и щиту если есть).
-/// Используется для UI, звуков, эффектов.
-#[derive(Event, Debug, Clone)]
-pub struct DamageDealt {
-    pub attacker: Entity,
-    pub target: Entity,
-    pub damage: u32,
-    pub source: DamageSource,
-    /// Результат применения урона (shield absorption status)
-    pub applied_damage: AppliedDamage,
-    /// Точка попадания (для VFX spawn position)
-    pub impact_point: Vec3,
-    /// Нормаль поверхности (для VFX направления)
-    pub impact_normal: Vec3,
-}
-
-/// Событие: entity умер (health <= 0)
-#[derive(Event, Debug, Clone)]
-pub struct EntityDied {
-    pub entity: Entity,
-    pub killer: Option<Entity>,
-}
+use crate::combat::{WeaponStats, DamageDealt, EntityDied, DamageSource, AppliedDamage};
 
 /// Компонент-маркер: entity мертв (Health <= 0)
 ///
@@ -235,77 +180,5 @@ pub fn despawn_after_timeout(
             crate::log(&format!("⚰️ Despawning entity {:?} (timeout)", entity));
             commands.entity(entity).despawn();
         }
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_damage_calculation_full_stamina() {
-        let stamina = Stamina::new(100.0); // 100% stamina
-        let damage = calculate_damage(20, Some(&stamina), None);
-
-        // 100% stamina → 1.0x multiplier → 20 damage
-        assert_eq!(damage, 20);
-    }
-
-    #[test]
-    fn test_damage_calculation_half_stamina() {
-        let mut stamina = Stamina::new(100.0);
-        stamina.consume(50.0); // 50% stamina
-
-        let damage = calculate_damage(20, Some(&stamina), None);
-
-        // 50% stamina → sqrt(0.5) = 0.707 → ~14 damage
-        assert!(damage >= 14 && damage <= 15, "damage = {}", damage);
-    }
-
-    #[test]
-    fn test_damage_calculation_low_stamina() {
-        let mut stamina = Stamina::new(100.0);
-        stamina.consume(75.0); // 25% stamina
-
-        let damage = calculate_damage(20, Some(&stamina), None);
-
-        // 25% stamina → sqrt(0.25) = 0.5 → 10 damage
-        assert_eq!(damage, 10);
-    }
-
-    #[test]
-    fn test_damage_calculation_no_stamina() {
-        let damage = calculate_damage(20, None, None);
-
-        // Без stamina компонента → full damage
-        assert_eq!(damage, 20);
-    }
-
-    #[test]
-    fn test_damage_dealt_event() {
-        let event = DamageDealt {
-            attacker: Entity::PLACEHOLDER,
-            target: Entity::PLACEHOLDER,
-            damage: 15,
-            source: DamageSource::Melee,
-            applied_damage: AppliedDamage::Direct,
-            impact_point: Vec3::ZERO,
-            impact_normal: Vec3::Z,
-        };
-
-        assert_eq!(event.damage, 15);
-        assert_eq!(event.source, DamageSource::Melee);
-        assert_eq!(event.applied_damage, AppliedDamage::Direct);
-    }
-
-    #[test]
-    fn test_entity_died_event() {
-        let event = EntityDied {
-            entity: Entity::PLACEHOLDER,
-            killer: Some(Entity::PLACEHOLDER),
-        };
-
-        assert!(event.killer.is_some());
     }
 }

@@ -1,114 +1,22 @@
-//! Weapon system - events для ranged combat
-//!
-//! Architecture:
-//! - ECS: WeaponStats (cooldown, decisions) в weapon_stats.rs
-//! - Godot: Aim execution (bone rotation), Fire visual (spawn projectile)
-//! - Events: WeaponFired (ECS→Godot), ProjectileHit (Godot→ECS)
+//! Weapon systems (cooldowns + ranged combat).
 
 use bevy::prelude::*;
+use crate::combat::{
+    WeaponStats, WeaponFireIntent, ProjectileHit, ProjectileShieldHit, DamageDealt, DamageSource,
+};
 
-// ❌ Projectile НЕ хранится в ECS — только в Godot (tactical layer)
-// Godot полностью владеет lifecycle: spawn, physics, collision, cleanup
-// ECS отвечает только за Weapon state и damage calculation
-
-/// Event: Актёр ХОЧЕТ выстрелить (ECS strategic intent)
-/// ECS принимает strategic decision: "cooldown готов, target в Combat state"
-/// Godot validation проверяет tactical constraints: distance, LOS
-///
-/// **Note:** `target` опционален для player FPS shooting (direction = camera forward)
-#[derive(Event, Debug, Clone)]
-pub struct WeaponFireIntent {
-    /// Кто хочет стрелять
-    pub shooter: Entity,
-
-    /// В кого хочет стрелять (None = player FPS shooting без target)
-    pub target: Option<Entity>,
-
-    /// Урон (из Weapon component)
-    pub damage: u32,
-
-    /// Скорость пули (из Weapon component)
-    pub speed: f32,
-
-    /// Max range (из Weapon component)
-    pub max_range: f32,
-
-    /// Радиус слышимости выстрела (для AI reaction)
-    pub hearing_range: f32,
+/// System: обновление weapon cooldowns
+pub fn update_weapon_cooldowns(
+    mut weapons: Query<&mut WeaponStats>,
+    time: Res<Time>,
+) {
+    for mut weapon in weapons.iter_mut() {
+        if weapon.cooldown_timer > 0.0 {
+            weapon.cooldown_timer -= time.delta_secs();
+            weapon.cooldown_timer = weapon.cooldown_timer.max(0.0);
+        }
+    }
 }
-
-/// Event: Актёр стреляет (ECS → Godot, после validation)
-/// Godot tactical layer проверил distance/LOS и разрешил выстрел
-/// Godot рассчитывает точное direction из weapon bone (+Z axis)
-///
-/// **Note:** `target` опционален (None = player FPS shooting, direction = weapon forward)
-#[derive(Event, Debug, Clone)]
-pub struct WeaponFired {
-    /// Кто стреляет
-    pub shooter: Entity,
-
-    /// В кого стреляет (None = направление из weapon bone, Some = fallback shooter→target)
-    pub target: Option<Entity>,
-
-    /// Урон пули
-    pub damage: u32,
-
-    /// Скорость пули
-    pub speed: f32,
-
-    /// Позиция стрелявшего (Godot Transform, для AI sound reaction)
-    pub shooter_position: Vec3,
-
-    /// Радиус слышимости выстрела (для AI reaction)
-    pub hearing_range: f32,
-}
-
-/// Event: Projectile попал в цель (Godot → ECS)
-#[derive(Event, Debug, Clone)]
-pub struct ProjectileHit {
-    /// Кто выстрелил (для предотвращения self-hit)
-    pub shooter: Entity,
-
-    /// В кого попали
-    pub target: Entity,
-
-    /// Урон
-    pub damage: u32,
-
-    /// Точка попадания (для VFX)
-    pub impact_point: Vec3,
-
-    /// Нормаль поверхности (для VFX направления)
-    pub impact_normal: Vec3,
-}
-
-/// Event: Projectile попал в щит (Godot → ECS)
-///
-/// Генерируется когда projectile коллидирует с ShieldSphere (Area3D).
-/// Shield блокирует projectile если:
-/// - shooter != target (свой щит не блокирует)
-/// - shield.is_active() (energy > 0)
-#[derive(Event, Debug, Clone)]
-pub struct ProjectileShieldHit {
-    /// Projectile entity (для despawn в Godot)
-    pub projectile: Entity,
-
-    /// Кто выстрелил
-    pub shooter: Entity,
-
-    /// Владелец щита (target)
-    pub target: Entity,
-
-    /// Урон
-    pub damage: u32,
-
-    /// Точка попадания в щит (для ripple VFX)
-    pub impact_point: Vec3,
-
-    /// Нормаль поверхности (для VFX направления)
-    pub impact_normal: Vec3,
-}
-
 
 /// System: AI weapon fire intent (ECS strategic decision)
 ///
@@ -121,7 +29,7 @@ pub struct ProjectileShieldHit {
 /// - Godot authoritative для tactical validation (distance, line of sight)
 /// - Разделение ответственности: strategic intent vs tactical execution
 pub fn ai_weapon_fire_intent(
-    mut actors: Query<(Entity, &crate::ai::AIState, &mut crate::combat::WeaponStats)>,
+    mut actors: Query<(Entity, &crate::ai::AIState, &mut WeaponStats)>,
     mut intent_events: EventWriter<WeaponFireIntent>,
 ) {
     use crate::ai::AIState;
@@ -169,7 +77,7 @@ pub fn ai_weapon_fire_intent(
 pub fn process_projectile_hits(
     mut hit_events: EventReader<ProjectileHit>,
     mut targets: Query<(&mut crate::Health, Option<&mut crate::components::EnergyShield>)>,
-    mut damage_events: EventWriter<crate::combat::DamageDealt>,
+    mut damage_events: EventWriter<DamageDealt>,
 ) {
     for hit in hit_events.read() {
         crate::log(&format!(
@@ -195,15 +103,15 @@ pub fn process_projectile_hits(
             &mut health,
             shield_opt.as_deref_mut(),
             hit.damage,
-            crate::combat::DamageSource::Ranged,
+            DamageSource::Ranged,
         );
 
         // Генерируем DamageDealt event для визуальных эффектов
-        damage_events.write(crate::combat::DamageDealt {
+        damage_events.write(DamageDealt {
             attacker: hit.shooter,
             target: hit.target,
             damage: hit.damage,
-            source: crate::combat::DamageSource::Ranged,
+            source: DamageSource::Ranged,
             applied_damage: applied,
             impact_point: hit.impact_point,
             impact_normal: hit.impact_normal,
@@ -224,7 +132,7 @@ pub fn process_projectile_hits(
 pub fn process_projectile_shield_hits(
     mut hit_events: EventReader<ProjectileShieldHit>,
     mut targets: Query<(&mut crate::Health, Option<&mut crate::components::EnergyShield>)>,
-    mut damage_events: EventWriter<crate::combat::DamageDealt>,
+    mut damage_events: EventWriter<DamageDealt>,
 ) {
     for hit in hit_events.read() {
         crate::log(&format!(
@@ -250,15 +158,15 @@ pub fn process_projectile_shield_hits(
             &mut health,
             shield_opt.as_deref_mut(),
             hit.damage,
-            crate::combat::DamageSource::Ranged, // Shield blocks ranged
+            DamageSource::Ranged, // Shield blocks ranged
         );
 
         // Генерируем DamageDealt event для визуальных эффектов
-        damage_events.write(crate::combat::DamageDealt {
+        damage_events.write(DamageDealt {
             attacker: hit.shooter,
             target: hit.target,
             damage: hit.damage,
-            source: crate::combat::DamageSource::Ranged,
+            source: DamageSource::Ranged,
             applied_damage: applied,
             impact_point: hit.impact_point,
             impact_normal: hit.impact_normal,
@@ -268,30 +176,5 @@ pub fn process_projectile_shield_hits(
             "🛡️ Shield absorbed damage: {:?} (HP: {} — untouched)",
             applied, health.current
         ));
-    }
-}
-
-// ❌ cleanup_projectiles удалена — Godot полностью управляет lifecycle
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_projectile_hit_event() {
-        let shooter = Entity::PLACEHOLDER;
-        let target = Entity::from_raw(1);
-
-        let hit = ProjectileHit {
-            shooter,
-            target,
-            damage: 20,
-            impact_point: Vec3::ZERO,
-            impact_normal: Vec3::Z,
-        };
-
-        assert_eq!(hit.shooter, shooter);
-        assert_eq!(hit.damage, 20);
-        assert_eq!(hit.impact_point, Vec3::ZERO);
     }
 }

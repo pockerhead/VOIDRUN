@@ -1,9 +1,9 @@
-//! Combat system module (Godot-driven combat architecture)
+//! Combat domain module (domain-driven architecture)
 //!
 //! ECS ответственность:
-//! - Game state: Health, Stamina, Attacker stats
+//! - Game state: Health, Stamina, Weapon stats
 //! - Combat rules: damage calculation, stamina costs
-//! - Events: DamageDealt, EntityDied
+//! - Events: DamageDealt, EntityDied, MeleeHit, WeaponFired, etc.
 //!
 //! Godot ответственность:
 //! - AnimationTree: weapon swing timing
@@ -14,42 +14,51 @@
 
 use bevy::prelude::*;
 
-pub mod damage;
-pub mod melee;
-pub mod stamina;
-pub mod weapon;
-pub mod weapon_stats;
+// Domain modules
+pub mod components;
+pub mod systems;
+pub mod events;
 
-// Re-export основных типов
-pub use damage::{
-    DamageDealt, DamageSource, AppliedDamage, EntityDied, Dead, DespawnAfter,
-    calculate_damage, apply_damage_with_shield, shield_recharge_system,
-};
-pub use melee::{
-    // Components
+// Re-export components
+pub use components::{
+    // Melee components
     MeleeAttackState, AttackPhase, ParryState, ParryPhase, StaggerState, ParryDelayTimer,
-    // Events
-    MeleeAttackIntent, MeleeAttackStarted, MeleeHit, ParryIntent, ParrySuccess,
     MeleeAttackType,
-    // Attack systems
-    start_melee_attacks, update_melee_attack_phases, process_melee_hits,
-    // Parry systems
-    start_parry, update_parry_states, update_stagger_states, process_parry_delay_timers,
+    // Weapon component
+    WeaponStats, WeaponType,
+    // Stamina components
+    Exhausted,
 };
-pub use stamina::{Exhausted, ATTACK_COST, BLOCK_COST, DODGE_COST};
-pub use weapon::{WeaponFired, WeaponFireIntent, ProjectileHit, ProjectileShieldHit, process_projectile_shield_hits};
-pub use weapon_stats::{WeaponStats, WeaponType, update_weapon_cooldowns};
 
-/// Type of attack (for AI decision-making and telegraph events).
-#[derive(Clone, Debug, PartialEq, Reflect)]
-pub enum AttackType {
-    /// Melee attack (close range, hitbox-based)
-    Melee,
-    /// Ranged attack (projectile-based)
-    Ranged,
-}
+// Re-export events
+pub use events::{
+    // Melee events
+    MeleeAttackIntent, MeleeAttackStarted, MeleeHit, ParryIntent, ParrySuccess,
+    // Ranged events
+    WeaponFireIntent, WeaponFired, ProjectileHit, ProjectileShieldHit,
+    // Damage events
+    DamageDealt, EntityDied, DamageSource, AppliedDamage,
+    // Shared enums
+    AttackType,
+};
 
-/// Combat Plugin (Godot-driven architecture)
+// Re-export systems
+pub use systems::{
+    // Melee systems
+    start_melee_attacks, update_melee_attack_phases, process_melee_hits,
+    start_parry, update_parry_states, update_stagger_states, process_parry_delay_timers,
+    // Weapon systems
+    update_weapon_cooldowns, ai_weapon_fire_intent,
+    process_projectile_hits, process_projectile_shield_hits,
+    // Damage systems
+    Dead, DespawnAfter, apply_damage, calculate_damage, apply_damage_with_shield,
+    shield_recharge_system, disable_ai_on_death, despawn_after_timeout,
+    // Stamina systems
+    ATTACK_COST, BLOCK_COST, DODGE_COST,
+    regenerate_stamina, consume_stamina_on_attack, detect_exhaustion,
+};
+
+/// Combat Plugin (domain-driven architecture)
 ///
 /// Регистрирует combat системы в FixedUpdate (64Hz).
 ///
@@ -87,7 +96,7 @@ impl Plugin for CombatPlugin {
 
                 // Фаза 2: Attack intent generation (ECS strategic decision)
                 // Godot tactical validation в process_*_intents_main_thread
-                weapon::ai_weapon_fire_intent,
+                ai_weapon_fire_intent,
                 // NOTE: ai_melee_attack_intent REMOVED - replaced by unified ai_combat_decision_main_thread (in Godot layer)
 
                 // Фаза 3: Attack execution (start attacks from approved intents)
@@ -101,19 +110,19 @@ impl Plugin for CombatPlugin {
                 update_stagger_states,
 
                 // Фаза 4: Damage application (from Godot events + projectiles + melee hits)
-                damage::apply_damage,
-                weapon::process_projectile_hits,
-                weapon::process_projectile_shield_hits, // Shield collision events → damage shield
+                apply_damage,
+                process_projectile_hits,
+                process_projectile_shield_hits, // Shield collision events → damage shield
                 process_melee_hits,
 
                 // Фаза 5: Death handling
-                damage::disable_ai_on_death,
-                damage::despawn_after_timeout,
+                disable_ai_on_death,
+                despawn_after_timeout,
 
                 // Фаза 6: Stamina management + Shield recharge
-                stamina::regenerate_stamina,
-                stamina::detect_exhaustion,
-                damage::shield_recharge_system,
+                regenerate_stamina,
+                detect_exhaustion,
+                shield_recharge_system,
 
                 // Projectile cleanup — в Godot (GodotProjectile::_physics_process)
             )
